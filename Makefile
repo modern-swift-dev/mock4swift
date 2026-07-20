@@ -1,0 +1,54 @@
+setup:
+
+	brew bundle install
+	brew upgrade
+	brew cleanup
+	brew autoremove
+	mint bootstrap
+
+lint:
+
+	mint run --no-install realm/SwiftLint  --config .swiftlint.yml --quiet
+
+format:
+
+	mint run --no-install nicklockwood/SwiftFormat . --config .swiftformat --quiet
+	mint run --no-install realm/SwiftLint  --config .swiftlint.yml --fix --quiet
+
+test-linux:
+	docker run \
+		--rm \
+		-v "$(PWD):$(PWD)" \
+		-w "$(PWD)" \
+		swift:6.3 \
+		bash -c 'swift test'
+
+test-macos:
+	set -o pipefail && \
+	xcodebuild test \
+		-scheme swift-snapshot-testing-Package \
+		-destination platform="macOS" | mint run --no-install cpisciotta/xcbeautify -q
+
+test-ios:
+	set -o pipefail && \
+	xcodebuild test \
+		-scheme swift-snapshot-testing-Package \
+		-destination platform="iOS Simulator,name=iPhone 17 Pro,OS=26.5" | mint run --no-install cpisciotta/xcbeautify -q
+
+test-swift:
+	set -o pipefail && \
+	swift test | mint run --no-install cpisciotta/xcbeautify -q
+
+test-tvos:
+	set -o pipefail && \
+	xcodebuild test \
+		-scheme swift-snapshot-testing-Package \
+		-destination platform="tvOS Simulator,name=Apple TV 4K (3rd generation),OS=26.5" | mint run --no-install cpisciotta/xcbeautify -q
+
+test-watchos:
+	set -o pipefail && \
+	xcodebuild test \
+		-scheme swift-snapshot-testing-Package \
+		-destination platform="watchOS Simulator,name=Apple Watch Series 11 (46mm),OS=26.5" | mint run --no-install cpisciotta/xcbeautify -q
+
+test-all: test-swift test-macos test-ios test-tvos test-watchos test-linux
