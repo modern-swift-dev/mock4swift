@@ -18,7 +18,7 @@ public struct MockableMacro: PeerMacro {
         let inherited = protocolDecl.inheritanceClause?.inheritedTypes.map {
             $0.type.trimmedDescription.split(separator: ".").last.map(String.init) ?? ""
         } ?? []
-        let markers = Set(["AnyObject", "Sendable", "Actor"])
+        let markers = Set(["AnyObject", "Sendable", "Actor", "~Copyable", "NSObjectProtocol"])
         if let custom = inherited.first(where: { !markers.contains($0) }) {
             diagnose(
                 "@Mockable cannot inspect inherited protocol '\(custom)'; use @MockableMembers on a handwritten mock",
@@ -32,6 +32,63 @@ public struct MockableMacro: PeerMacro {
         guard generator.validate(in: context) else { return [] }
         return [DeclSyntax(stringLiteral: generator.render())]
     }
+}
+
+/// Syntax-only marker consumed by `@Mockable` and `@MockableMembers`.
+public struct MockNoncopyableMacro: PeerMacro {
+    public static func expansion(
+        of node: AttributeSyntax,
+        providingPeersOf declaration: some DeclSyntaxProtocol,
+        in context: some MacroExpansionContext
+    ) throws -> [DeclSyntax] { [] }
+}
+
+/// Fills inherited-subscript accessor bodies as `#MockableAccessor`.
+public struct MockableExplicitAccessorMacro: ExpressionMacro {
+    public static func expansion(
+        of node: some FreestandingMacroExpansionSyntax,
+        in context: some MacroExpansionContext
+    ) throws -> ExprSyntax {
+        let ancestorAccessor = firstAncestor(of: node, as: AccessorDeclSyntax.self)
+        let ancestorSubscript = firstAncestor(of: node, as: SubscriptDeclSyntax.self)
+        let lexicalSubscript = ancestorSubscript ?? context.lexicalContext.reversed().compactMap({ $0.as(SubscriptDeclSyntax.self) }).first
+        let lexicalHeader = ancestorAccessor.map(accessorHeader) ?? context.lexicalContext.first?.trimmedDescription.trimmingCharacters(in: .whitespacesAndNewlines) ?? "get"
+        let modeledSubscript: SubscriptDeclSyntax? = lexicalSubscript.flatMap { declaration in
+            let accessors = lexicalHeader.contains("set") ? "get set" : lexicalHeader + " set"
+            return DeclSyntax(stringLiteral: declaration.with(\.accessorBlock, nil).trimmedDescription + " { \(accessors) }").as(SubscriptDeclSyntax.self)
+        }
+        guard let info = enclosingMockInfo(context),
+              let subscriptDecl = modeledSubscript,
+              let member = SubscriptMember.make(
+                  subscriptDecl,
+                  index: 0,
+                  access: "",
+                  replacements: [:],
+                  mockType: info.name,
+                  factoryIsolation: info.isolated
+              ).first(where: {
+                  let kind = ancestorAccessor?.accessorSpecifier.text ?? (lexicalHeader.contains("set") ? "set" : "get")
+                  return ($0.kind == .get) == (kind == "get")
+              }) else {
+            return ExprSyntax(stringLiteral: "preconditionFailure(\"#MockableAccessor must be used inside a mock subscript accessor\")")
+        }
+        let setup = member.witnessRegistryResolution
+        let call = "try \(member.witnessChannelReference).invoke(\(member.invocationArguments))"
+        if let typedError = member.typedError {
+            return ExprSyntax(stringLiteral: "try { () throws(\(typedError)) -> \(member.outputType) in \(setup)do { return \(call) } catch let error as \(typedError) { throw error } catch { preconditionFailure(\"Invalid or unstubbed typed-throws member \(member.displayName): \\(error)\") } }()")
+        }
+        if member.isThrowing { return ExprSyntax(stringLiteral: "try { () throws -> \(member.outputType) in \(setup)return \(call) }()") }
+        return ExprSyntax(stringLiteral: "{ \(setup)do { return \(call) } catch { preconditionFailure(\"Unstubbed nonthrowing member \(member.displayName): \\(error)\") } }()")
+    }
+}
+
+private func firstAncestor<Node: SyntaxProtocol>(of node: some SyntaxProtocol, as type: Node.Type) -> Node? {
+    var current = Syntax(node)?.parent
+    while let syntax = current {
+        if let result = syntax.as(Node.self) { return result }
+        current = syntax.parent
+    }
+    return nil
 }
 
 /// Escape hatch driven by witness declarations authored in a handwritten mock.
@@ -52,9 +109,10 @@ public struct MockableMembersMacro: MemberMacro, MemberAttributeMacro, Extension
         providingAttributesFor member: some DeclSyntaxProtocol,
         in context: some MacroExpansionContext
     ) throws -> [AttributeSyntax] {
-        guard member.is(FunctionDeclSyntax.self) || member.is(VariableDeclSyntax.self)
-                || member.is(SubscriptDeclSyntax.self) || member.is(InitializerDeclSyntax.self),
-              let index = declaration.memberBlock.members.enumerated().first(where: { $0.element.decl.trimmedDescription == member.trimmedDescription })?.offset else { return [] }
+        let modeledMembers = declaration.memberBlock.members.filter { isManualMockMember($0.decl) }
+        guard isManualMockMember(DeclSyntax(member)),
+              let index = modeledMembers.enumerated().first(where: { $0.element.decl.trimmedDescription == member.trimmedDescription })?.offset else { return [] }
+        if let subscriptDecl = member.as(SubscriptDeclSyntax.self), hasExplicitMockableAccessors(subscriptDecl) || hasExpressionMockableAccessors(subscriptDecl) { return [] }
         let name = member.is(FunctionDeclSyntax.self) || member.is(InitializerDeclSyntax.self) ? "_Mock4SwiftBody" : "_Mock4SwiftAccessor"
         return [AttributeSyntax(stringLiteral: "@\(name)(\(index))")]
     }
@@ -88,7 +146,7 @@ public struct MockableBodyMacro: BodyMacro {
             return Array(body.statements)
         }
         if let initializer = declaration.as(InitializerDeclSyntax.self) {
-            let member = InitializerMember(declaration: initializer, index: index, access: "", replacements: [:], mockType: info.name, factoryIsolation: info.isolated, isActor: info.isActor)
+            let member = InitializerMember(declaration: initializer, index: index, access: "", replacements: [:], mockType: info.name, factoryIsolation: info.isolated, isActor: info.isActor, isObjectiveC: false)
             guard let generated = DeclSyntax(stringLiteral: member.witness).as(InitializerDeclSyntax.self), let body = generated.body else { return [] }
             return Array(body.statements)
         }
@@ -171,8 +229,18 @@ private struct ManualMockGenerator {
             if let variable = item.decl.as(VariableDeclSyntax.self), variable.bindings.first?.accessorBlock == nil {
                 return stripWitnessModifiers(variable.trimmedDescription) + " { get set }"
             }
-            if let subscriptDecl = item.decl.as(SubscriptDeclSyntax.self), subscriptDecl.accessorBlock == nil {
-                return stripWitnessModifiers(subscriptDecl.trimmedDescription) + " { get }"
+            if let subscriptDecl = item.decl.as(SubscriptDeclSyntax.self) {
+                if subscriptDecl.accessorBlock == nil {
+                    return stripWitnessModifiers(subscriptDecl.trimmedDescription) + " { get }"
+                }
+                if hasExplicitMockableAccessors(subscriptDecl) || hasExpressionMockableAccessors(subscriptDecl) {
+                    let accessors: String = {
+                        guard let block = subscriptDecl.accessorBlock, case .accessors(let list) = block.accessors else { return "get" }
+                        return list.map { accessorHeader($0) }.joined(separator: " ")
+                    }()
+                    let signature = subscriptDecl.with(\.accessorBlock, nil).trimmedDescription
+                    return stripWitnessModifiers(signature) + " { \(accessors.replacingOccurrences(of: "@MockableAccessor", with: "")) }"
+                }
             }
             if let initializer = item.decl.as(InitializerDeclSyntax.self), initializer.body == nil {
                 return stripWitnessModifiers(initializer.trimmedDescription)
@@ -192,6 +260,31 @@ private struct ManualMockGenerator {
     }
 
     func supportingMembers() -> [DeclSyntax] { generator.supportingMembers() }
+}
+
+private func hasExplicitMockableAccessors(_ declaration: SubscriptDeclSyntax) -> Bool {
+    guard let block = declaration.accessorBlock, case .accessors(let accessors) = block.accessors else { return false }
+    return !accessors.isEmpty && accessors.allSatisfy { accessor in
+        accessor.attributes.contains { element in
+            guard let attribute = element.as(AttributeSyntax.self) else { return false }
+            return attribute.attributeName.trimmedDescription.split(separator: ".").last == "MockableAccessor"
+        }
+    }
+}
+
+private func hasExpressionMockableAccessors(_ declaration: SubscriptDeclSyntax) -> Bool {
+    guard let block = declaration.accessorBlock, case .accessors(let accessors) = block.accessors else { return false }
+    return !accessors.isEmpty && accessors.allSatisfy { $0.body?.trimmedDescription.contains("#MockableAccessor") == true }
+}
+
+private func isManualMockMember(_ declaration: DeclSyntax) -> Bool {
+    if let function = declaration.as(FunctionDeclSyntax.self) { return function.body == nil }
+    if let variable = declaration.as(VariableDeclSyntax.self) { return variable.bindings.first?.accessorBlock == nil }
+    if let subscriptDecl = declaration.as(SubscriptDeclSyntax.self) {
+        return hasExplicitMockableAccessors(subscriptDecl) || hasExpressionMockableAccessors(subscriptDecl)
+    }
+    if let initializer = declaration.as(InitializerDeclSyntax.self) { return initializer.body == nil }
+    return false
 }
 
 private func witnessIndex(_ node: AttributeSyntax) -> Int? {
@@ -236,6 +329,10 @@ private struct MockGenerator {
         Dictionary(uniqueKeysWithValues: associatedTypes.map { ($0.name.text, $0.name.text + "Type") })
     }
     private var mockType: String { protocolDecl.name.text + "Mock" }
+    private var isObjectiveC: Bool {
+        hasAttribute(named: "objc", in: protocolDecl.attributes)
+            || protocolDecl.inheritanceClause?.inheritedTypes.contains(where: { $0.type.trimmedDescription.hasSuffix("NSObjectProtocol") }) == true
+    }
     private var hasGlobalActor: Bool {
         protocolDecl.attributes.contains { element in
             guard let attribute = element.as(AttributeSyntax.self) else { return false }
@@ -282,41 +379,32 @@ private struct MockGenerator {
                 }
                 continue
             }
-            if item.decl.trimmedDescription.range(of: #"\bSelf\s*\."#, options: .regularExpression) != nil {
-                diagnose("dependent Self member types are not supported yet", at: item.decl, in: context)
-                valid = false
-                continue
-            }
             if let function = item.decl.as(FunctionDeclSyntax.self) {
-                let isRethrows = (function.signature.effectSpecifiers?.trimmedDescription ?? "").contains("rethrows")
-                if hasAvailabilityAttribute(function.attributes) {
-                    diagnose("member-level availability is not supported yet; apply @available to the protocol", at: function, in: context)
-                    valid = false
-                } else if function.genericParameterClause?.parameters.contains(where: { $0.specifier != nil }) == true {
-                    diagnose("generic parameter packs are not supported yet", at: function, in: context)
-                    valid = false
-                } else if function.trimmedDescription.contains("~Copyable") || function.trimmedDescription.contains("some ") {
-                    diagnose("noncopyable and opaque requirements are not supported yet", at: function, in: context)
-                    valid = false
-                } else if !isRethrows && function.signature.parameterClause.parameters.contains(where: {
+                let transient = hasAttribute(named: "MockNoncopyable", in: function.attributes) || function.trimmedDescription.contains("~Copyable")
+                if transient, function.signature.parameterClause.parameters.contains(where: {
                     $0.type.trimmedDescription.contains("->") && !$0.trimmedDescription.contains("@escaping")
                 }) {
-                    diagnose("nonescaping function parameters cannot be recorded; mark the parameter @escaping", at: function, in: context)
+                    diagnose("nonescaping closure parameters are not supported on noncopyable requirements", at: function, in: context)
+                    valid = false
+                } else if transient, function.signature.parameterClause.parameters.count > 1,
+                   function.signature.parameterClause.parameters.contains(where: { $0.type.trimmedDescription.hasPrefix("borrowing ") }) {
+                    diagnose("Swift 6.3 cannot form a transient aggregate containing a borrowed noncopyable parameter; use a single wrapper parameter", at: function, in: context)
+                    valid = false
+                } else if transient, function.signature.parameterClause.parameters.count > 1, function.genericParameterClause != nil {
+                    diagnose("generic multiargument noncopyable requirements are not supported yet; use a named wrapper parameter", at: function, in: context)
+                    valid = false
+                } else if function.genericParameterClause?.parameters.contains(where: { $0.specifier != nil }) == true,
+                   !(function.signature.parameterClause.parameters.count == 1 && function.signature.parameterClause.parameters.first?.type.trimmedDescription.hasPrefix("repeat each ") == true) {
+                    diagnose("parameter packs currently require one pack parameter", at: function, in: context)
+                    valid = false
+                } else if function.signature.returnClause?.type.trimmedDescription.contains("some ") == true {
+                    diagnose("opaque result types are not valid protocol requirements", at: function, in: context)
                     valid = false
                 }
                 continue
             }
             if let initializer = item.decl.as(InitializerDeclSyntax.self) {
-                if hasAvailabilityAttribute(initializer.attributes) {
-                    diagnose("member-level availability is not supported yet; apply @available to the protocol", at: initializer, in: context)
-                    valid = false
-                } else if initializer.genericParameterClause != nil {
-                    diagnose("generic initializer requirements are not supported yet", at: initializer, in: context)
-                    valid = false
-                } else if initializer.trimmedDescription.contains("~Copyable") {
-                    diagnose("noncopyable initializer parameters are not supported yet", at: initializer, in: context)
-                    valid = false
-                } else if initializer.signature.parameterClause.parameters.contains(where: {
+                if initializer.signature.parameterClause.parameters.contains(where: {
                     $0.type.trimmedDescription.contains("->") && !$0.trimmedDescription.contains("@escaping")
                 }) {
                     diagnose("nonescaping initializer closures cannot be recorded", at: initializer, in: context)
@@ -325,37 +413,33 @@ private struct MockGenerator {
                 continue
             }
             if let variable = item.decl.as(VariableDeclSyntax.self) {
-                let accessors = variable.bindings.first?.accessorBlock?.trimmedDescription ?? ""
-                if hasAvailabilityAttribute(variable.attributes) {
-                    diagnose("member-level availability is not supported yet; apply @available to the protocol", at: variable, in: context)
-                    valid = false
-                    continue
-                } else if accessors.range(of: #"\b(async|throws)\b"#, options: .regularExpression) != nil {
-                    diagnose("async and throwing property accessors are not supported yet", at: variable, in: context)
-                    valid = false
-                    continue
-                } else if PropertyMember.isSupported(variable) {
+                if PropertyMember.isSupported(variable) {
                     continue
                 }
             }
             if let subscriptDecl = item.decl.as(SubscriptDeclSyntax.self) {
-                if hasAvailabilityAttribute(subscriptDecl.attributes) {
-                    diagnose("member-level availability is not supported yet; apply @available to the protocol", at: subscriptDecl, in: context)
+                let settable = (subscriptDecl.accessorBlock?.trimmedDescription ?? "{ get }").contains("set")
+                let hasValuePack = subscriptDecl.genericParameterClause?.parameters.contains(where: { $0.specifier != nil }) == true
+                let transient = hasAttribute(named: "MockNoncopyable", in: subscriptDecl.attributes) || subscriptDecl.trimmedDescription.contains("~Copyable")
+                if transient, subscriptDecl.parameterClause.parameters.contains(where: {
+                    $0.type.trimmedDescription.contains("->") && !$0.trimmedDescription.contains("@escaping")
+                }) {
+                    diagnose("nonescaping closure parameters are not supported on noncopyable requirements", at: subscriptDecl, in: context)
                     valid = false
                     continue
-                } else if subscriptDecl.modifiers.contains(where: { ["static", "class"].contains($0.name.text) }) {
-                    diagnose("static subscript requirements are not supported yet", at: subscriptDecl, in: context)
+                }
+                if settable, hasValuePack {
+                    diagnose("settable parameter-pack subscripts are not supported yet", at: subscriptDecl, in: context)
                     valid = false
                     continue
-                } else if subscriptDecl.genericParameterClause != nil {
-                    diagnose("generic subscript requirements are not supported yet", at: subscriptDecl, in: context)
+                }
+                let transientFieldCount = subscriptDecl.parameterClause.parameters.count + (settable ? 1 : 0)
+                if transient, subscriptDecl.genericParameterClause != nil, transientFieldCount > 1 {
+                    diagnose("generic multiargument noncopyable subscripts cannot form a transient argument aggregate", at: subscriptDecl, in: context)
                     valid = false
                     continue
-                } else if subscriptDecl.trimmedDescription.range(of: #"\b(async|throws)\b"#, options: .regularExpression) != nil {
-                    diagnose("async and throwing subscript accessors are not supported yet", at: subscriptDecl, in: context)
-                    valid = false
-                    continue
-                } else if SubscriptMember.isSupported(subscriptDecl) {
+                }
+                if SubscriptMember.isSupported(subscriptDecl) {
                     continue
                 }
             }
@@ -391,20 +475,22 @@ private struct MockGenerator {
         let all = members
         let initializers = protocolDecl.memberBlock.members.enumerated().compactMap { index, item in
             item.decl.as(InitializerDeclSyntax.self).map {
-                InitializerMember(declaration: $0, index: index, access: access, replacements: replacements, mockType: mockType, factoryIsolation: configurationIsolation, isActor: isActor)
+                InitializerMember(declaration: $0, index: index, access: access, replacements: replacements, mockType: mockType, factoryIsolation: configurationIsolation, isActor: isActor, isObjectiveC: isObjectiveC)
             }
         }
         let instance = all.filter { !$0.isStatic }
         let staticMembers = all.filter(\.isStatic)
-        let genericMembers = instance.filter(\.isGeneric)
-        let memberChannels = all.filter { !$0.isGeneric }.map { member in
+        let genericMembers = instance.filter(\.usesRegistry)
+        let memberChannels = all.filter { !$0.usesRegistry }.map { member in
             if member.isStatic {
-                return "    \(isolation)private static var \(member.channelName): MockMember<\(member.argumentsType), \(member.outputType)> {\n        StaticMockRegistry.shared.member(owner: Self.self, key: \"\(member.channelName)\") { MockMember(name: \"\(member.displayName)\") }\n    }"
+                return "    \(isolation)private static var \(member.channelName): \(member.channelType) {\n        StaticMockRegistry.shared.member(owner: Self.self, key: \"\(member.channelName)\") { \(member.channelConstructor) }\n    }"
             }
-            return "    \(isolation)private let \(member.channelName) = MockMember<\(member.argumentsType), \(member.outputType)>(name: \"\(member.displayName)\")"
+            return "    \(isolation)private let \(member.channelName) = \(member.channelConstructor)"
         }
-        let initializerChannels = initializers.map { "    \(isolation)private let \($0.channelName) = MockMember<\($0.argumentsType), Void>(name: \"\($0.displayName)\")" }
-        let channels = (memberChannels + initializerChannels).joined(separator: "\n")
+        let ephemeralChannels = all.compactMap(\.ephemeralChannelDeclaration)
+        let initializerChannels = initializers.filter { !$0.usesRegistry }.map { "    \(isolation)private let \($0.channelName) = \($0.channelType)(name: \"\($0.displayName)\")" }
+        let argumentStructs = all.compactMap(\.argumentsStructDeclaration)
+        let channels = (argumentStructs + memberChannels + ephemeralChannels + initializerChannels).joined(separator: "\n")
         let initializerWitnesses = initializers.map(\.witness).joined(separator: "\n\n")
         let memberWitnesses = all.map(\.witness).filter { !$0.isEmpty }
         let witnesses = (memberWitnesses + (initializerWitnesses.isEmpty ? [] : [initializerWitnesses])).joined(separator: "\n\n")
@@ -414,14 +500,15 @@ private struct MockGenerator {
         let staticGivenFactories = staticMembers.map(\.givenFactory).joined(separator: "\n\n")
         let staticVerifyFactories = staticMembers.map(\.verifyFactory).joined(separator: "\n\n")
         let staticPerformFactories = staticMembers.map(\.performFactory).joined(separator: "\n\n")
-        let resets = (instance.filter { !$0.isGeneric }.map { "        \($0.channelName).reset(scopes)" } + initializers.map { "        \($0.channelName).reset(scopes)" }).joined(separator: "\n")
+        let resets = (instance.filter { !$0.usesRegistry }.map { "        \($0.channelName).reset(scopes)" } + instance.compactMap(\.ephemeralReset) + initializers.filter { !$0.usesRegistry }.map { "        \($0.channelName).reset(scopes)" }).joined(separator: "\n")
         let channelSection = channels.isEmpty ? "" : channels + "\n\n"
         let givenSection = givenFactories.isEmpty ? "" : "\n\n" + givenFactories
         let verifySection = verifyFactories.isEmpty ? "" : "\n\n" + verifyFactories
         let performSection = performFactories.isEmpty ? "" : "\n\n" + performFactories
         let witnessSection = witnesses.isEmpty ? "" : "\n\n" + witnesses
         let resetSection = resets.isEmpty ? "" : "\n" + resets + "\n    "
-        let genericRegistry = genericMembers.isEmpty ? "" : "    \(isolation)private let _genericMockRegistry = GenericMockRegistry()\n\n"
+        let needsGenericRegistry = !genericMembers.isEmpty || initializers.contains(where: \.usesRegistry)
+        let genericRegistry = needsGenericRegistry ? "    \(isolation)private let _genericMockRegistry = GenericMockRegistry()\n\n" : ""
         let staticConformance = staticMembers.isEmpty ? "" : ", StaticMock"
         let staticDSL = staticMembers.isEmpty ? "" : """
 
@@ -454,7 +541,8 @@ private struct MockGenerator {
             }
         """
 
-        return attributePrefix + access + "final \(kind) \(name)Mock\(generics): \(name), Mock\(staticConformance)\(mockWhere) {\n"
+        let superclass = isObjectiveC ? "Foundation.NSObject, " : ""
+        return attributePrefix + access + "final \(kind) \(name)Mock\(generics): \(superclass)\(name), Mock\(staticConformance)\(mockWhere) {\n"
             + typealiasSection
             + genericRegistry
             + channelSection
@@ -471,7 +559,7 @@ private struct MockGenerator {
             + "    \(access)\(isolation)func perform(_ perform: Perform) {\n        perform.apply(self)\n    }\n"
             + "    \(access)\(isolation)func verification(_ verify: Verify, count: Count) -> VerificationResult {\n"
             + "        verify.apply(self, count)\n    }\n"
-            + "    \(access)\(isolation)func resetMock(_ scopes: MockScope...) {\(resetSection)\(genericMembers.isEmpty ? "" : "\n        _genericMockRegistry.reset(scopes)")\n    }"
+            + "    \(access)\(isolation)func resetMock(_ scopes: MockScope...) {\(resetSection)\(needsGenericRegistry ? "\n        _genericMockRegistry.reset(scopes)" : "")\n    }"
             + staticDSL
             + witnessSection + "\n}"
     }
@@ -509,12 +597,19 @@ private enum GeneratedMember {
     var displayName: String { switch self { case .function(let x): x.displayName; case .property(let x): x.displayName; case .subscriptMember(let x): x.displayName } }
     var argumentsType: String { switch self { case .function(let x): x.argumentsType; case .property(let x): x.argumentsType; case .subscriptMember(let x): x.argumentsType } }
     var outputType: String { switch self { case .function(let x): x.outputType; case .property(let x): x.outputType; case .subscriptMember(let x): x.outputType } }
-    var isStatic: Bool { switch self { case .function(let x): x.isStatic; case .property(let x): x.isStatic; case .subscriptMember: false } }
-    var isGeneric: Bool { switch self { case .function(let x): x.isGeneric; case .property, .subscriptMember: false } }
+    var isTransient: Bool { switch self { case .function(let x): x.isTransient; case .property(let x): x.isTransient; case .subscriptMember(let x): x.isTransient } }
+    var channelType: String { "\(isTransient ? "TransientMockMember" : "MockMember")<\(argumentsType), \(outputType)>" }
+    var channelConstructor: String { "\(channelType)(name: \"\(displayName)\")" }
+    var isStatic: Bool { switch self { case .function(let x): x.isStatic; case .property(let x): x.isStatic; case .subscriptMember(let x): x.isStatic } }
+    var isGeneric: Bool { switch self { case .function(let x): x.isGeneric; case .property: false; case .subscriptMember(let x): x.isGeneric } }
+    var usesRegistry: Bool { switch self { case .function(let x): x.usesRegistry; case .property(let x): x.usesRegistry; case .subscriptMember(let x): x.usesRegistry } }
     var witness: String { switch self { case .function(let x): x.witness; case .property(let x): x.witness; case .subscriptMember(let x): x.witness } }
     var givenFactory: String { switch self { case .function(let x): x.givenFactory; case .property(let x): x.givenFactory; case .subscriptMember(let x): x.givenFactory } }
     var verifyFactory: String { switch self { case .function(let x): x.verifyFactory; case .property(let x): x.verifyFactory; case .subscriptMember(let x): x.verifyFactory } }
     var performFactory: String { switch self { case .function(let x): x.performFactory; case .property(let x): x.performFactory; case .subscriptMember(let x): x.performFactory } }
+    var ephemeralChannelDeclaration: String? { if case .function(let value) = self { value.ephemeralChannelDeclaration } else { nil } }
+    var ephemeralReset: String? { if case .function(let value) = self, value.hasEphemeralDispatcher, !value.ephemeralUsesRegistry { "        \(value.ephemeralChannelName).reset(scopes)" } else { nil } }
+    var argumentsStructDeclaration: String? { switch self { case .function(let value): value.argumentsStructDeclaration; case .subscriptMember(let value): value.argumentsStructDeclaration; case .property: nil } }
 }
 
 private struct ParameterInfo {
@@ -524,7 +619,9 @@ private struct ParameterInfo {
     let matcher: String
     let position: Int
 
-    var declaration: String { "\(external == "_" ? "_" : external) \(matcher): Parameter<\(type)>" }
+    var isPack: Bool { type.hasPrefix("repeat each ") }
+    var packElement: String { isPack ? String(type.dropFirst("repeat ".count)) : type }
+    var declaration: String { "\(external == "_" ? "_" : external) \(matcher): \(isPack ? "repeat Parameter<\(packElement)>" : "Parameter<\(type)>")" }
     var actionDeclaration: String { "\(external == "_" ? "_" : external) \(local): \(type)" }
     var argumentAccess: String { position == 0 ? "arguments" : "arguments.\(position)" }
 }
@@ -542,12 +639,12 @@ private struct FunctionMember {
     var displayName: String { declaration.name.text + declaration.signature.parameterClause.parameters.map { "\($0.firstName.text):" }.joined() }
     var parameters: [ParameterInfo] {
         declaration.signature.parameterClause.parameters.enumerated().compactMap { position, parameter in
-            if isRethrows && parameter.type.trimmedDescription.contains("->") && !parameter.trimmedDescription.contains("@escaping") {
+            if parameter.type.trimmedDescription.contains("->") && !parameter.trimmedDescription.contains("@escaping") {
                 return nil
             }
             let external = parameter.firstName.text
             let local = parameter.secondName?.text ?? (external == "_" ? "argument\(position)" : external)
-            var type = rewriteType(parameter.type.trimmedDescription, replacements: replacements, mockType: mockType)
+            var type = opaqueParameter(at: position)?.name ?? rewriteType(parameter.type.trimmedDescription, replacements: replacements, mockType: mockType)
             if parameter.ellipsis != nil { type = "[\(type)]" }
             for prefix in ["inout ", "borrowing ", "consuming ", "sending "] where type.hasPrefix(prefix) {
                 type.removeFirst(prefix.count)
@@ -555,15 +652,46 @@ private struct FunctionMember {
             return ParameterInfo(external: external, local: local, type: type, matcher: "matching\(position)", position: position)
         }
     }
+    var ephemeralParameters: [(local: String, type: String)] {
+        declaration.signature.parameterClause.parameters.enumerated().compactMap { position, parameter -> (String, String)? in
+            guard parameter.type.trimmedDescription.contains("->"), !parameter.trimmedDescription.contains("@escaping") else { return nil }
+            let external = parameter.firstName.text
+            let local = parameter.secondName?.text ?? (external == "_" ? "argument\(position)" : external)
+            return (local, rewriteType(parameter.type.trimmedDescription, replacements: replacements, mockType: mockType))
+        }
+    }
+    var hasEphemeralDispatcher: Bool { !ephemeralParameters.isEmpty }
+    var ephemeralUsesRegistry: Bool { usesRegistry || isStatic }
+    var ephemeralChannelName: String { channelName + "_ephemeral" }
+    var ephemeralChannelDeclaration: String? {
+        guard hasEphemeralDispatcher, !ephemeralUsesRegistry else { return nil }
+        return "    private let \(ephemeralChannelName) = EphemeralActionDispatcher<\(argumentsType), \(ephemeralArgumentsType)>()"
+    }
+    var ephemeralArgumentsType: String {
+        if ephemeralParameters.count == 1 { return ephemeralParameters[0].type }
+        return "(" + ephemeralParameters.map { "\($0.local): \($0.type)" }.joined(separator: ", ") + ")"
+    }
+    var ephemeralType: String { "EphemeralActionDispatcher<\(argumentsType), \(ephemeralArgumentsType)>" }
+    func ephemeralRegistryResolution(owner: String, indentation: String) -> String {
+        guard hasEphemeralDispatcher, ephemeralUsesRegistry else { return "" }
+        if isStatic {
+            return "let dispatcher: \(ephemeralType) = StaticMockRegistry.shared.member(owner: \(owner), key: \"\(ephemeralChannelName)\", typeIDs: \(registryTypes)) { \(ephemeralType)() }\n\(indentation)"
+        }
+        return "let dispatcher: \(ephemeralType) = \(owner)._genericMockRegistry.member(key: \"\(ephemeralChannelName)\", typeIDs: \(registryTypes)) { \(ephemeralType)() }\n\(indentation)"
+    }
     var argumentsType: String {
-        switch parameters.count {
+        if isTransient, parameters.count > 1 { return "_MockArguments_\(stableIdentifier(displayName))" }
+        if parameters.count == 1, parameters[0].isPack { return "(\(parameters[0].type))" }
+        return switch parameters.count {
         case 0: "Void"
         case 1: parameters[0].type
         default: "(" + parameters.map { "\($0.local): \($0.type)" }.joined(separator: ", ") + ")"
         }
     }
     var argumentsExpression: String {
-        switch parameters.count {
+        if isTransient, parameters.count > 1 { return "\(argumentsType)(" + parameters.map { "\($0.local): \($0.local)" }.joined(separator: ", ") + ")" }
+        if parameters.count == 1, parameters[0].isPack { return "(repeat each \(parameters[0].local))" }
+        return switch parameters.count {
         case 0: "()"
         case 1: parameters[0].local
         default: "(" + parameters.map { "\($0.local): \($0.local)" }.joined(separator: ", ") + ")"
@@ -571,29 +699,61 @@ private struct FunctionMember {
     }
     var outputType: String { declaration.signature.returnClause.map { rewriteType($0.type.trimmedDescription, replacements: replacements, mockType: mockType) } ?? "Void" }
     var isStatic: Bool { declaration.modifiers.contains { ["static", "class"].contains($0.name.text) } }
-    var isGeneric: Bool { declaration.genericParameterClause != nil }
+    var opaqueParameters: [(name: String, constraint: String)] {
+        declaration.signature.parameterClause.parameters.enumerated().compactMap { position, parameter in
+            let type = parameter.type.trimmedDescription
+            guard type.hasPrefix("some ") else { return nil }
+            return ("_MockOpaque\(position)", String(type.dropFirst(5)))
+        }
+    }
+    func opaqueParameter(at position: Int) -> (name: String, constraint: String)? {
+        opaqueParameters.first { $0.name == "_MockOpaque\(position)" }
+    }
+    var isGeneric: Bool { declaration.genericParameterClause != nil || !opaqueParameters.isEmpty }
+    var availability: String { availabilityAttributes(declaration.attributes) }
+    var usesRegistry: Bool { isGeneric || !availability.isEmpty }
     var isRethrows: Bool { (declaration.signature.effectSpecifiers?.trimmedDescription ?? "").contains("rethrows") }
     var isThrowing: Bool { (declaration.signature.effectSpecifiers?.trimmedDescription ?? "").contains("throws") }
-    var genericClause: String { declaration.genericParameterClause?.trimmedDescription ?? "" }
+    var isTransient: Bool { hasAttribute(named: "MockNoncopyable", in: declaration.attributes) || declaration.trimmedDescription.contains("~Copyable") }
+    var genericClause: String {
+        let explicit = declaration.genericParameterClause?.parameters.map(\.trimmedDescription) ?? []
+        let opaque = opaqueParameters.map { "\($0.name): \($0.constraint)" }
+        let all = explicit + opaque
+        return all.isEmpty ? "" : "<\(all.joined(separator: ", "))>"
+    }
     var whereClause: String { declaration.genericWhereClause.map { " " + rewriteType($0.trimmedDescription, replacements: replacements, mockType: mockType) } ?? "" }
     var genericTypes: String {
-        declaration.genericParameterClause?.parameters.map { "\($0.name.text).self" }.joined(separator: ", ") ?? ""
+        ((declaration.genericParameterClause?.parameters.filter { $0.specifier == nil }.map { "\($0.name.text).self" } ?? []) + opaqueParameters.map { "\($0.name).self" }).joined(separator: ", ")
     }
+    var packGenericNames: [String] { declaration.genericParameterClause?.parameters.compactMap { $0.specifier == nil ? nil : $0.name.text } ?? [] }
+    var registrySetup: String {
+        guard !packGenericNames.isEmpty else { return "" }
+        var value = "var specializationTypeIDs: [ObjectIdentifier] = \(objectIdentifierList(genericTypes))\n            "
+        for name in packGenericNames { value += "for type in repeat (each \(name)).self { specializationTypeIDs.append(ObjectIdentifier(type)) }\n            " }
+        return value
+    }
+    var registryTypes: String { packGenericNames.isEmpty ? objectIdentifierList(genericTypes) : "specializationTypeIDs" }
     var registryResolution: String {
-        guard isGeneric else { return "" }
+        guard usesRegistry else { return "" }
         if isStatic {
-            return "let member: MockMember<\(argumentsType), \(outputType)> = StaticMockRegistry.shared.member(owner: mock, key: \"\(channelName)\", types: [\(genericTypes)]) { MockMember(name: \"\(displayName)\") }\n            "
+            return "\(registrySetup)let member: \(channelType) = StaticMockRegistry.shared.member(owner: mock, key: \"\(channelName)\", typeIDs: \(registryTypes)) { \(channelConstructor) }\n            "
         }
-        return "let member: MockMember<\(argumentsType), \(outputType)> = mock._genericMockRegistry.member(key: \"\(channelName)\", types: [\(genericTypes)]) { MockMember(name: \"\(displayName)\") }\n            "
+        return "\(registrySetup)let member: \(channelType) = mock._genericMockRegistry.member(key: \"\(channelName)\", typeIDs: \(registryTypes)) { \(channelConstructor) }\n            "
     }
     var witnessRegistryResolution: String {
-        guard isGeneric else { return "" }
+        guard usesRegistry else { return "" }
         if isStatic {
-            return "let member: MockMember<\(argumentsType), \(outputType)> = StaticMockRegistry.shared.member(owner: Self.self, key: \"\(channelName)\", types: [\(genericTypes)]) { MockMember(name: \"\(displayName)\") }\n        "
+            return "\(registrySetup.replacingOccurrences(of: "            ", with: "        "))let member: \(channelType) = StaticMockRegistry.shared.member(owner: Self.self, key: \"\(channelName)\", typeIDs: \(registryTypes)) { \(channelConstructor) }\n        "
         }
-        return "let member: MockMember<\(argumentsType), \(outputType)> = _genericMockRegistry.member(key: \"\(channelName)\", types: [\(genericTypes)]) { MockMember(name: \"\(displayName)\") }\n        "
+        return "\(registrySetup.replacingOccurrences(of: "            ", with: "        "))let member: \(channelType) = _genericMockRegistry.member(key: \"\(channelName)\", typeIDs: \(registryTypes)) { \(channelConstructor) }\n        "
     }
-    var channelReference: String { isGeneric ? "member" : "mock.\(channelName)" }
+    var channelType: String { "\(isTransient ? "TransientMockMember" : "MockMember")<\(argumentsType), \(outputType)>" }
+    var channelConstructor: String { "\(channelType)(name: \"\(displayName)\")" }
+    var channelReference: String { usesRegistry ? "member" : "mock.\(channelName)" }
+    var argumentsStructDeclaration: String? {
+        guard isTransient, parameters.count > 1 else { return nil }
+        return "    private struct \(argumentsType): ~Copyable {\n" + parameters.map { "        let \($0.local): \($0.type)" }.joined(separator: "\n") + "\n    }"
+    }
     var typedError: String? {
         let effects = declaration.signature.effectSpecifiers?.trimmedDescription ?? ""
         guard let start = effects.range(of: "throws("), let end = effects[start.upperBound...].firstIndex(of: ")") else { return nil }
@@ -603,41 +763,69 @@ private struct FunctionMember {
     var matcherDeclarations: String { parameters.map(\.declaration).joined(separator: ", ") }
     var matcherClosure: String {
         guard !parameters.isEmpty else { return "{ _ in true }" }
+        if parameters.count == 1, let parameter = parameters.first, parameter.isPack {
+            return "{ arguments in var result = true; for (argument, matcher) in repeat (each arguments, each \(parameter.matcher)) { result = result && matcher.matches(argument) }; return result }"
+        }
         return "{ arguments in " + parameters.map { parameter in
             let access = parameters.count == 1 ? "arguments" : "arguments.\(parameter.local)"
             return "\(parameter.matcher).matches(\(access))"
         }.joined(separator: " && ") + " }"
     }
-    var specificity: String { parameters.isEmpty ? "0" : parameters.map { "\($0.matcher).specificity" }.joined(separator: " + ") }
+    var specificity: String {
+        if parameters.count == 1, parameters[0].isPack { return "specificity" }
+        return parameters.isEmpty ? "0" : parameters.map { "\($0.matcher).specificity" }.joined(separator: " + ")
+    }
+    var matcherSetup: String {
+        guard parameters.count == 1, let parameter = parameters.first, parameter.isPack else { return "" }
+        return "var specificity = 0\n            for matcher in repeat each \(parameter.matcher) { specificity += matcher.specificity }\n            "
+    }
     var actionType: String {
-        switch parameters.count {
+        let ownership = isTransient ? "borrowing " : ""
+        return switch parameters.count {
         case 0: "() -> Void"
-        case 1: "(\(parameters[0].type)) -> Void"
-        default: "(" + parameters.map(\.type).joined(separator: ", ") + ") -> Void"
+        case 1 where parameters[0].isPack: "(\(parameters[0].type)) -> Void"
+        case 1: "(\(ownership)\(parameters[0].type)) -> Void"
+        default: "(" + parameters.map { ownership + $0.type }.joined(separator: ", ") + ") -> Void"
         }
     }
     var actionCall: String {
         switch parameters.count {
         case 0: "action()"
+        case 1 where parameters[0].isPack: "action(repeat each arguments)"
         case 1: "action(arguments)"
         default: "action(" + parameters.map { "arguments.\($0.local)" }.joined(separator: ", ") + ")"
         }
     }
     var signaturePrefix: String {
         let modifiers = declaration.modifiers.compactMap { modifier -> String? in
-            if ["mutating", "nonmutating"].contains(modifier.name.text) { return nil }
+            if ["mutating", "nonmutating", "optional"].contains(modifier.name.text) { return nil }
             return modifier.name.text == "class" ? "static" : modifier.trimmedDescription
         }.joined(separator: " ")
         return (access + (modifiers.isEmpty ? "" : modifiers + " "))
     }
     var witness: String {
-        let signatureText = rewriteType(declaration.signature.trimmedDescription, replacements: replacements, mockType: mockType)
+        var signatureText = rewriteType(declaration.signature.trimmedDescription, replacements: replacements, mockType: mockType)
+        for opaque in opaqueParameters {
+            if let range = signatureText.range(of: "some \(opaque.constraint)") { signatureText.replaceSubrange(range, with: opaque.name) }
+        }
         let signature = "\(signaturePrefix)func \(declaration.name.trimmedDescription)\(genericClause)\(signatureText)\(whereClause)"
-        let invocation = "\(isGeneric ? "member" : channelName).invoke(\(argumentsExpression))"
+        let invocation = "\(usesRegistry ? "member" : channelName).invoke(\(argumentsExpression))"
+        let ephemeralDispatch: String = {
+            guard hasEphemeralDispatcher else { return "" }
+            let resolution = ephemeralRegistryResolution(owner: isStatic ? "Self.self" : "self", indentation: "        ")
+            let dispatcher = ephemeralUsesRegistry ? "dispatcher" : ephemeralChannelName
+            let value = ephemeralParameters.count == 1 ? "_ephemeral0" : "(" + ephemeralParameters.enumerated().map { "\($0.element.local): _ephemeral\($0.offset)" }.joined(separator: ", ") + ")"
+            var dispatch = "\(dispatcher).dispatch(\(argumentsExpression), ephemeral: \(value))"
+            for (offset, parameter) in ephemeralParameters.enumerated().reversed() {
+                dispatch = "withoutActuallyEscaping(\(parameter.local)) { _ephemeral\(offset) in\n            \(dispatch)\n        }"
+            }
+            return "\(resolution)\(dispatch)\n        "
+        }()
+        let attributes = witnessAttributePrefix(declaration.attributes, indentation: "    ")
         if let typedError {
-            return """
+            return availabilityPrefix(indentation: "    ") + attributes + """
                 \(signature) {
-                    \(witnessRegistryResolution)\
+                    \(witnessRegistryResolution)\(ephemeralDispatch)\
                     do { return try \(invocation) }
                     catch let error as \(typedError) { throw error }
                     catch { preconditionFailure("Invalid or unstubbed typed-throws member \(displayName): \\(error)") }
@@ -645,24 +833,36 @@ private struct FunctionMember {
             """.split(separator: "\n", omittingEmptySubsequences: false).map { "    " + $0 }.joined(separator: "\n")
         }
         if isRethrows {
-            return """
+            return availabilityPrefix(indentation: "    ") + attributes + """
                 \(signature) {
-                    \(witnessRegistryResolution)\
+                    \(witnessRegistryResolution)\(ephemeralDispatch)\
                     do { return try \(invocation) }
                     catch { preconditionFailure("Invalid or unstubbed rethrows member \(displayName): \\(error)") }
                 }
             """.split(separator: "\n", omittingEmptySubsequences: false).map { "    " + $0 }.joined(separator: "\n")
         }
-        if isThrowing { return "    \(signature) {\n        \(witnessRegistryResolution)try \(invocation)\n    }" }
-        return """
+        if isThrowing { return availabilityPrefix(indentation: "    ") + attributes + "    \(signature) {\n        \(witnessRegistryResolution)\(ephemeralDispatch)try \(invocation)\n    }" }
+        return availabilityPrefix(indentation: "    ") + attributes + """
             \(signature) {
-                \(witnessRegistryResolution)do { return try \(invocation) }
+                \(witnessRegistryResolution)\(ephemeralDispatch)do { return try \(invocation) }
                 catch { preconditionFailure("Unstubbed nonthrowing member \(displayName): \\(error)") }
             }
         """.split(separator: "\n", omittingEmptySubsequences: false).map { "    " + $0 }.joined(separator: "\n")
     }
     var givenFactory: String {
         let leading = matcherDeclarations.isEmpty ? "" : matcherDeclarations + ", "
+        if isTransient {
+            let returns: String
+            if outputType == "Void" {
+                returns = factory(factorySignature(arguments: matcherDeclarations), body: "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: [.producing { () }])")
+            } else {
+                returns = factory(factorySignature(arguments: "\(leading)willProduce producers: (() -> \(outputType))..."), body: "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: producers.map(TransientStubOutcome<\(outputType)>.producing))")
+            }
+            guard isThrowing && !isRethrows else { return returns }
+            let errorType = typedError ?? "any Error"
+            let throwsFactory = factory(factorySignature(arguments: "\(leading)willThrow errors: \(errorType)..."), body: "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: errors.map(TransientStubOutcome<\(outputType)>.throwing))")
+            return returns + "\n\n" + throwsFactory
+        }
         if outputType == "Void" {
             let returns = factory(factorySignature(arguments: matcherDeclarations), body: "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: [.returnValue(())])")
             guard isThrowing && !isRethrows else { return returns }
@@ -677,17 +877,42 @@ private struct FunctionMember {
         return returns + "\n\n" + throwsFactory
     }
     var verifyFactory: String {
-        factory(factorySignature(arguments: matcherDeclarations), body: "\(registryResolution)return \(channelReference).verification(matching: \(matcherClosure), count: count)", verify: true)
+        if isTransient {
+            let labels = parameters.filter { $0.external != "_" }.map { "\($0.external): Void = ()" }.joined(separator: ", ")
+            return factory(factorySignature(arguments: labels), body: "\(registryResolution)return \(channelReference).verification(count: count)", verify: true)
+        }
+        return factory(factorySignature(arguments: matcherDeclarations), body: "\(registryResolution)return \(channelReference).verification(matching: \(matcherClosure), count: count)", verify: true)
     }
     var performFactory: String {
         let leading = matcherDeclarations.isEmpty ? "" : matcherDeclarations + ", "
-        let outcomes = outputType == "Void" ? ", outcomes: [.returnValue(())]" : ""
-        let body = "\(registryResolution)\(channelReference).addAction(matching: \(matcherClosure), specificity: \(specificity)\(outcomes)) { arguments in \(actionCall) }"
-        return factory(factorySignature(arguments: "\(leading)_ action: @escaping \(actionType)"), body: body)
+        let outcomes: String
+        if outputType == "Void" { outcomes = isTransient ? ", outcomes: [.producing { () }]" : ", outcomes: [.returnValue(())]" }
+        else { outcomes = "" }
+        let body: String
+        if hasEphemeralDispatcher {
+            let mainStub = outputType == "Void" ? "\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: [.returnValue(())])\n            " : ""
+            let mainResolution = outputType == "Void" ? registryResolution : registrySetup
+            let recordableCall: String
+            let ephemeralCalls = ephemeralParameters.map { ephemeralParameters.count == 1 ? "ephemeral" : "ephemeral.\($0.local)" }
+            switch parameters.count {
+            case 0: recordableCall = "action(" + ephemeralCalls.joined(separator: ", ") + ")"
+            case 1: recordableCall = "action(" + (["arguments"] + ephemeralCalls).joined(separator: ", ") + ")"
+            default: recordableCall = "action(" + (parameters.map { "arguments.\($0.local)" } + ephemeralCalls).joined(separator: ", ") + ")"
+            }
+            let dispatcherResolution = ephemeralRegistryResolution(owner: isStatic ? "mock" : "mock", indentation: "            ")
+            let dispatcher = ephemeralUsesRegistry ? "dispatcher" : "mock.\(ephemeralChannelName)"
+            body = "\(mainResolution)\(dispatcherResolution)\(mainStub)\(dispatcher).addAction(matching: \(matcherClosure), specificity: \(specificity)) { arguments, ephemeral in \(recordableCall) }"
+            let actionTypes = parameters.map(\.type) + ephemeralParameters.map(\.type)
+            let actionType = "(" + actionTypes.joined(separator: ", ") + ") -> Void"
+            return factory(factorySignature(arguments: "\(leading)_ action: @escaping \(actionType)"), body: body)
+        }
+        body = "\(registryResolution)\(channelReference).addAction(matching: \(matcherClosure), specificity: \(specificity)\(outcomes)) { arguments in \(actionCall) }"
+        let actionLabel = parameters.contains(where: \.isPack) ? "perform action" : "_ action"
+        return factory(factorySignature(arguments: "\(leading)\(actionLabel): @escaping \(actionType)"), body: body)
     }
 
     private func factorySignature(arguments: String) -> String {
-        let genericParameters = declaration.genericParameterClause?.parameters.map(\.name.text) ?? []
+        let genericParameters = (declaration.genericParameterClause?.parameters.map(\.name.text) ?? []) + opaqueParameters.map(\.name)
         var usedReturningLabel = false
         let tokens = genericParameters.compactMap { parameter -> String? in
             guard arguments.range(of: "\\b\(NSRegularExpression.escapedPattern(for: parameter))\\b", options: .regularExpression) == nil else { return nil }
@@ -706,12 +931,17 @@ private struct FunctionMember {
     }
 
     private func factory(_ signature: String, body: String, verify: Bool = false) -> String {
+        let body = matcherSetup + body
         let closure = verify ? "Self { mock, count in\n            \(body)\n        }" : "Self { mock in\n            \(body)\n        }"
-        return """
+        return availabilityPrefix(indentation: "        ") + """
                 \(access)\(signature) {
                     \(closure)
                 }
         """
+    }
+
+    private func availabilityPrefix(indentation: String) -> String {
+        availability.isEmpty ? "" : availability.split(separator: "\n").map { indentation + $0 }.joined(separator: "\n") + "\n"
     }
 }
 
@@ -724,7 +954,13 @@ private struct PropertyMember {
     let access: String
     let isReadWrite: Bool
     let isStatic: Bool
+    let nonisolatedModifier: String
     let factoryIsolation: String
+    let getterHeader: String
+    let availability: String
+    let witnessAttributes: String
+    let isTransient: Bool
+    var usesRegistry: Bool { !availability.isEmpty }
 
     static func isSupported(_ declaration: VariableDeclSyntax) -> Bool {
         guard declaration.bindings.count == 1, let binding = declaration.bindings.first,
@@ -738,9 +974,18 @@ private struct PropertyMember {
         let text = binding.accessorBlock?.trimmedDescription ?? "{ get }"
         let settable = text.contains("set")
         let isStatic = declaration.modifiers.contains { ["static", "class"].contains($0.name.text) }
+        let nonisolatedModifier = declaration.modifiers.first(where: { $0.name.text == "nonisolated" })?.trimmedDescription ?? ""
         let type = rewriteType(annotation.type.trimmedDescription, replacements: replacements, mockType: mockType)
-        var result = [Self(name: pattern.identifier.text, type: type, kind: .get, index: index, access: access, isReadWrite: settable, isStatic: isStatic, factoryIsolation: factoryIsolation)]
-        if settable { result.append(Self(name: pattern.identifier.text, type: type, kind: .set, index: index, access: access, isReadWrite: true, isStatic: isStatic, factoryIsolation: factoryIsolation)) }
+        let accessors: [AccessorDeclSyntax] = {
+            guard let block = binding.accessorBlock, case .accessors(let list) = block.accessors else { return [] }
+            return Array(list)
+        }()
+        let getterHeader = accessors.first(where: { $0.accessorSpecifier.text == "get" }).map(accessorHeader) ?? "get"
+        let availability = availabilityAttributes(declaration.attributes)
+        let witnessAttributes = witnessAttributePrefix(declaration.attributes, indentation: "    ")
+        let isTransient = hasAttribute(named: "MockNoncopyable", in: declaration.attributes) || declaration.trimmedDescription.contains("~Copyable")
+        var result = [Self(name: pattern.identifier.text, type: type, kind: .get, index: index, access: access, isReadWrite: settable, isStatic: isStatic, nonisolatedModifier: nonisolatedModifier, factoryIsolation: factoryIsolation, getterHeader: getterHeader, availability: availability, witnessAttributes: witnessAttributes, isTransient: isTransient)]
+        if settable { result.append(Self(name: pattern.identifier.text, type: type, kind: .set, index: index, access: access, isReadWrite: true, isStatic: isStatic, nonisolatedModifier: nonisolatedModifier, factoryIsolation: factoryIsolation, getterHeader: getterHeader, availability: availability, witnessAttributes: witnessAttributes, isTransient: isTransient)) }
         return result
     }
 
@@ -749,42 +994,94 @@ private struct PropertyMember {
     var displayName: String { "\(name).\(suffix)" }
     var argumentsType: String { kind == .get ? "Void" : type }
     var outputType: String { kind == .get ? type : "Void" }
+    var getterEffects: String { getterHeader.replacingOccurrences(of: "get", with: "", options: [.anchored]).trimmingCharacters(in: .whitespacesAndNewlines) }
+    var isAsync: Bool { getterEffects.range(of: #"\basync\b"#, options: .regularExpression) != nil }
+    var isThrowing: Bool { getterEffects.range(of: #"\bthrows\b"#, options: .regularExpression) != nil }
+    var typedError: String? { parsedTypedError(getterEffects) }
+    var channelType: String { "\(isTransient ? "TransientMockMember" : "MockMember")<\(argumentsType), \(outputType)>" }
+    var channelConstructor: String { "\(channelType)(name: \"\(displayName)\")" }
+    var registryResolution: String {
+        guard usesRegistry else { return "" }
+        if isStatic {
+            return "let member: \(channelType) = StaticMockRegistry.shared.member(owner: mock, key: \"\(channelName)\", types: []) { \(channelConstructor) }\n            "
+        }
+        return "let member: \(channelType) = mock._genericMockRegistry.member(key: \"\(channelName)\", types: []) { \(channelConstructor) }\n            "
+    }
+    var witnessRegistryResolution: String {
+        guard usesRegistry else { return "" }
+        if isStatic {
+            return "let member: \(channelType) = StaticMockRegistry.shared.member(owner: Self.self, key: \"\(channelName)\", types: []) { \(channelConstructor) }\n            "
+        }
+        return "let member: \(channelType) = _genericMockRegistry.member(key: \"\(channelName)\", types: []) { \(channelConstructor) }\n            "
+    }
+    var channelReference: String { usesRegistry ? "member" : "mock.\(channelName)" }
+    var witnessChannelReference: String { usesRegistry ? "member" : channelName }
     var witness: String {
         guard kind == .get else { return "" }
-        let getter = "get {\n            do { return try _mock_\(name)_get_\(index).invoke(()) }\n            catch { preconditionFailure(\"Unstubbed nonthrowing member \(name).get: \\(error)\") }\n        }"
-        let setter = isReadWrite ? "\n        set {\n            do { return try _mock_\(name)_set_\(index).invoke(newValue) }\n            catch { preconditionFailure(\"Unstubbed nonthrowing member \(name).set: \\(error)\") }\n        }" : ""
-        return "    \(access)\(isStatic ? "static " : "")var \(name): \(type) {\n        \(getter)\(setter)\n    }"
+        let call = "try \(witnessChannelReference).invoke(())"
+        let getterBody: String
+        if let typedError {
+            getterBody = "\(witnessRegistryResolution)do { return \(call) }\n            catch let error as \(typedError) { throw error }\n            catch { preconditionFailure(\"Invalid or unstubbed typed-throws member \(name).get: \\(error)\") }"
+        } else if isThrowing {
+            getterBody = "\(witnessRegistryResolution)return \(call)"
+        } else {
+            getterBody = "\(witnessRegistryResolution)do { return \(call) }\n            catch { preconditionFailure(\"Unstubbed nonthrowing member \(name).get: \\(error)\") }"
+        }
+        let getter = "\(getterHeader) {\n            \(getterBody)\n        }"
+        let setterChannel = usesRegistry ? "member" : "_mock_\(name)_set_\(index)"
+        let setterResolution: String
+        if usesRegistry {
+            let setterType = "\(isTransient ? "TransientMockMember" : "MockMember")<\(type), Void>"
+            if isStatic { setterResolution = "let member: \(setterType) = StaticMockRegistry.shared.member(owner: Self.self, key: \"_mock_\(name)_set_\(index)\", types: []) { \(setterType)(name: \"\(name).set\") }\n            " }
+            else { setterResolution = "let member: \(setterType) = _genericMockRegistry.member(key: \"_mock_\(name)_set_\(index)\", types: []) { \(setterType)(name: \"\(name).set\") }\n            " }
+        } else { setterResolution = "" }
+        let setter = isReadWrite ? "\n        set {\n            \(setterResolution)do { return try \(setterChannel).invoke(newValue) }\n            catch { preconditionFailure(\"Unstubbed nonthrowing member \(name).set: \\(error)\") }\n        }" : ""
+        let prefix = availability.isEmpty ? "" : availability + "\n"
+        return prefix + witnessAttributes + "    \(access)\(nonisolatedModifier.isEmpty ? "" : nonisolatedModifier + " ")\(isStatic ? "static " : "")var \(name): \(type) {\n        \(getter)\(setter)\n    }"
     }
     var givenFactory: String {
         switch kind {
         case .get:
-            return factory("static func \(name)(willReturn values: \(type)...) -> Self", "mock.\(channelName).addStub(matching: { _ in true }, specificity: 0, outcomes: values.map(StubOutcome.returnValue))")
+            if isTransient {
+                let returns = factory("static func \(name)(willProduce producers: (() -> \(type))...) -> Self", "\(registryResolution)\(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: producers.map(TransientStubOutcome<\(type)>.producing))")
+                guard isThrowing else { return returns }
+                let errors = typedError ?? "any Error"
+                return returns + "\n\n" + factory("static func \(name)(willThrow errors: \(errors)...) -> Self", "\(registryResolution)\(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: errors.map(TransientStubOutcome<\(type)>.throwing))")
+            }
+            let returns = factory("static func \(name)(willReturn values: \(type)...) -> Self", "\(registryResolution)\(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: values.map(StubOutcome.returnValue))")
+            guard isThrowing else { return returns }
+            let errors = typedError ?? "any Error"
+            return returns + "\n\n" + factory("static func \(name)(willThrow errors: \(errors)...) -> Self", "\(registryResolution)\(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: errors.map(StubOutcome.throwError))")
         case .set:
-            return factory("static func \(name)(set matching: Parameter<\(type)>) -> Self", "mock.\(channelName).addStub(matching: { matching.matches($0) }, specificity: matching.specificity, outcomes: [.returnValue(())])")
+            if isTransient { return factory("static func \(name)(set matching: Parameter<\(type)>) -> Self", "\(registryResolution)\(channelReference).addStub(matching: { matching.matches($0) }, specificity: matching.specificity, outcomes: [.producing { () }])") }
+            return factory("static func \(name)(set matching: Parameter<\(type)>) -> Self", "\(registryResolution)\(channelReference).addStub(matching: { matching.matches($0) }, specificity: matching.specificity, outcomes: [.returnValue(())])")
         }
     }
     var verifyFactory: String {
         switch kind {
         case .get:
-            return verifyFactory("static func \(name)() -> Self", "mock.\(channelName).verification(matching: { _ in true }, count: count)")
+            if isTransient { return verifyFactory("static func \(name)() -> Self", "\(registryResolution)return \(channelReference).verification(count: count)") }
+            return verifyFactory("static func \(name)() -> Self", "\(registryResolution)return \(channelReference).verification(matching: { _ in true }, count: count)")
         case .set:
-            return verifyFactory("static func \(name)(set matching: Parameter<\(type)>) -> Self", "mock.\(channelName).verification(matching: { matching.matches($0) }, count: count)")
+            if isTransient { return verifyFactory("static func \(name)(set: Void = ()) -> Self", "\(registryResolution)return \(channelReference).verification(count: count)") }
+            return verifyFactory("static func \(name)(set matching: Parameter<\(type)>) -> Self", "\(registryResolution)return \(channelReference).verification(matching: { matching.matches($0) }, count: count)")
         }
     }
     var performFactory: String {
         switch kind {
         case .get:
-            return factory("static func \(name)(_ action: @escaping () -> Void) -> Self", "mock.\(channelName).addAction(matching: { _ in true }, specificity: 0) { _ in action() }")
+            return factory("static func \(name)(_ action: @escaping () -> Void) -> Self", "\(registryResolution)\(channelReference).addAction(matching: { _ in true }, specificity: 0) { _ in action() }")
         case .set:
-            return factory("static func \(name)(set matching: Parameter<\(type)>, _ action: @escaping (\(type)) -> Void) -> Self", "mock.\(channelName).addAction(matching: { matching.matches($0) }, specificity: matching.specificity, outcomes: [.returnValue(())], action: action)")
+            if isTransient { return factory("static func \(name)(set matching: Parameter<\(type)>, _ action: @escaping (borrowing \(type)) -> Void) -> Self", "\(registryResolution)\(channelReference).addAction(matching: { matching.matches($0) }, specificity: matching.specificity, outcomes: [.producing { () }], action: action)") }
+            return factory("static func \(name)(set matching: Parameter<\(type)>, _ action: @escaping (\(type)) -> Void) -> Self", "\(registryResolution)\(channelReference).addAction(matching: { matching.matches($0) }, specificity: matching.specificity, outcomes: [.returnValue(())], action: action)")
         }
     }
 
     private func factory(_ signature: String, _ body: String) -> String {
-        "        \(access)\(factoryIsolation)\(signature) {\n            Self { mock in\n                \(body)\n            }\n        }"
+        (availability.isEmpty ? "" : availability.split(separator: "\n").map { "        " + $0 }.joined(separator: "\n") + "\n") + "        \(access)\(factoryIsolation)\(signature) {\n            Self { mock in\n                \(body)\n            }\n        }"
     }
     private func verifyFactory(_ signature: String, _ body: String) -> String {
-        "        \(access)\(factoryIsolation)\(signature) {\n            Self { mock, count in\n                \(body)\n            }\n        }"
+        (availability.isEmpty ? "" : availability.split(separator: "\n").map { "        " + $0 }.joined(separator: "\n") + "\n") + "        \(access)\(factoryIsolation)\(signature) {\n            Self { mock, count in\n                \(body)\n            }\n        }"
     }
 }
 
@@ -800,12 +1097,26 @@ private struct SubscriptMember {
     let factoryIsolation: String
     let replacements: [String: String]
     let mockType: String
+    let getterHeader: String
+    let availability: String
+    let witnessAttributes: String
+
+    var isStatic: Bool { declaration.modifiers.contains { ["static", "class"].contains($0.name.text) } }
+    var isGeneric: Bool { declaration.genericParameterClause != nil }
+    var isTransient: Bool { hasAttribute(named: "MockNoncopyable", in: declaration.attributes) || declaration.trimmedDescription.contains("~Copyable") }
+    var usesRegistry: Bool { isGeneric || !availability.isEmpty }
+    var genericTypes: String { declaration.genericParameterClause?.parameters.filter { $0.specifier == nil }.map { "\($0.name.text).self" }.joined(separator: ", ") ?? "" }
+    var packGenericNames: [String] { declaration.genericParameterClause?.parameters.compactMap { $0.specifier == nil ? nil : $0.name.text } ?? [] }
+    var registrySetup: String {
+        guard !packGenericNames.isEmpty else { return "" }
+        var value = "var specializationTypeIDs: [ObjectIdentifier] = \(objectIdentifierList(genericTypes))\n            "
+        for name in packGenericNames { value += "for type in repeat (each \(name)).self { specializationTypeIDs.append(ObjectIdentifier(type)) }\n            " }
+        return value
+    }
+    var registryTypes: String { packGenericNames.isEmpty ? objectIdentifierList(genericTypes) : "specializationTypeIDs" }
 
     static func isSupported(_ declaration: SubscriptDeclSyntax) -> Bool {
-        !declaration.modifiers.contains { ["static", "class"].contains($0.name.text) }
-            && declaration.genericParameterClause == nil
-            && !declaration.trimmedDescription.contains(" async")
-            && !declaration.trimmedDescription.contains(" throws")
+        true
     }
 
     static func make(_ declaration: SubscriptDeclSyntax, index: Int, access: String, replacements: [String: String], mockType: String, factoryIsolation: String) -> [Self] {
@@ -819,30 +1130,73 @@ private struct SubscriptMember {
         }
         let settable = (declaration.accessorBlock?.trimmedDescription ?? "{ get }").contains("set")
         let valueType = rewriteType(declaration.returnClause.type.trimmedDescription, replacements: replacements, mockType: mockType)
-        var result = [Self(declaration: declaration, kind: .get, index: index, access: access, parameters: parameters, valueType: valueType, isReadWrite: settable, factoryIsolation: factoryIsolation, replacements: replacements, mockType: mockType)]
-        if settable { result.append(Self(declaration: declaration, kind: .set, index: index, access: access, parameters: parameters, valueType: valueType, isReadWrite: true, factoryIsolation: factoryIsolation, replacements: replacements, mockType: mockType)) }
+        let accessors: [AccessorDeclSyntax] = {
+            guard let block = declaration.accessorBlock, case .accessors(let list) = block.accessors else { return [] }
+            return Array(list)
+        }()
+        let getterHeader = accessors.first(where: { $0.accessorSpecifier.text == "get" }).map(accessorHeader) ?? "get"
+        let availability = availabilityAttributes(declaration.attributes)
+        let witnessAttributes = witnessAttributePrefix(declaration.attributes, indentation: "    ")
+        var result = [Self(declaration: declaration, kind: .get, index: index, access: access, parameters: parameters, valueType: valueType, isReadWrite: settable, factoryIsolation: factoryIsolation, replacements: replacements, mockType: mockType, getterHeader: getterHeader, availability: availability, witnessAttributes: witnessAttributes)]
+        if settable { result.append(Self(declaration: declaration, kind: .set, index: index, access: access, parameters: parameters, valueType: valueType, isReadWrite: true, factoryIsolation: factoryIsolation, replacements: replacements, mockType: mockType, getterHeader: getterHeader, availability: availability, witnessAttributes: witnessAttributes)) }
         return result
     }
 
-    var channelName: String { "_mock_subscript_\(kind == .get ? "get" : "set")_\(index)" }
+    var signatureIdentifierSource: String {
+        let modifiers = declaration.modifiers.map(\.trimmedDescription).filter { !["public", "package", "internal", "fileprivate", "private"].contains($0) }.joined(separator: " ")
+        return [modifiers, declaration.genericParameterClause?.trimmedDescription ?? "", declaration.parameterClause.trimmedDescription, declaration.returnClause.trimmedDescription, declaration.genericWhereClause?.trimmedDescription ?? "", getterHeader].joined(separator: "|")
+    }
+    var channelName: String { "_mock_subscript_\(kind == .get ? "get" : "set")_\(stableIdentifier(signatureIdentifierSource))" }
     var displayName: String { "subscript.\(kind == .get ? "get" : "set")" }
     var argumentsType: String {
+        if isTransient, argumentsFieldCount > 1 { return "_MockArguments_\(stableIdentifier(displayName + signatureIdentifierSource))" }
+        if kind == .get, parameters.count == 1, parameters[0].isPack { return "(\(parameters[0].type))" }
         let fields = parameters.map { "\($0.local): \($0.type)" } + (kind == .set ? ["newValue: \(valueType)"] : [])
         if fields.isEmpty { return "Void" }
         if fields.count == 1 { return parameters[0].type }
         return "(" + fields.joined(separator: ", ") + ")"
     }
     var outputType: String { kind == .get ? valueType : "Void" }
-    var isStatic: Bool { false }
+    var getterEffects: String { getterHeader.replacingOccurrences(of: "get", with: "", options: [.anchored]).trimmingCharacters(in: .whitespacesAndNewlines) }
+    var isAsync: Bool { getterEffects.range(of: #"\basync\b"#, options: .regularExpression) != nil }
+    var isThrowing: Bool { getterEffects.range(of: #"\bthrows\b"#, options: .regularExpression) != nil }
+    var typedError: String? { parsedTypedError(getterEffects) }
+    var channelType: String { "\(isTransient ? "TransientMockMember" : "MockMember")<\(argumentsType), \(outputType)>" }
+    var channelConstructor: String { "\(channelType)(name: \"\(displayName)\")" }
+    var registryResolution: String {
+        guard usesRegistry else { return "" }
+        if isStatic {
+            return "\(registrySetup)let member: \(channelType) = StaticMockRegistry.shared.member(owner: mock, key: \"\(channelName)\", typeIDs: \(registryTypes)) { \(channelConstructor) }\n            "
+        }
+        return "\(registrySetup)let member: \(channelType) = mock._genericMockRegistry.member(key: \"\(channelName)\", typeIDs: \(registryTypes)) { \(channelConstructor) }\n            "
+    }
+    var witnessRegistryResolution: String {
+        guard usesRegistry else { return "" }
+        if isStatic {
+            return "\(registrySetup)let member: \(channelType) = StaticMockRegistry.shared.member(owner: Self.self, key: \"\(channelName)\", typeIDs: \(registryTypes)) { \(channelConstructor) }\n            "
+        }
+        return "\(registrySetup)let member: \(channelType) = _genericMockRegistry.member(key: \"\(channelName)\", typeIDs: \(registryTypes)) { \(channelConstructor) }\n            "
+    }
+    var channelReference: String { usesRegistry ? "member" : "mock.\(channelName)" }
+    var witnessChannelReference: String { usesRegistry ? "member" : channelName }
+    var argumentsStructDeclaration: String? {
+        guard isTransient, argumentsFieldCount > 1 else { return nil }
+        let fields = parameters.map { ($0.local, $0.type) } + (kind == .set ? [("newValue", valueType)] : [])
+        return "    private struct \(argumentsType): ~Copyable {\n" + fields.map { "        let \($0.0): \($0.1)" }.joined(separator: "\n") + "\n    }"
+    }
     var matcherDeclarations: String {
         let base = parameters.map(\.declaration)
         return (base + (kind == .set ? ["value: Parameter<\(valueType)>"] : [])).joined(separator: ", ")
     }
     var specificity: String {
+        if kind == .get, parameters.count == 1, parameters[0].isPack { return "specificity" }
         let parts = parameters.map { "\($0.matcher).specificity" } + (kind == .set ? ["value.specificity"] : [])
         return parts.isEmpty ? "0" : parts.joined(separator: " + ")
     }
     var matcherClosure: String {
+        if kind == .get, parameters.count == 1, let parameter = parameters.first, parameter.isPack {
+            return "{ arguments in var result = true; for (argument, matcher) in repeat (each arguments, each \(parameter.matcher)) { result = result && matcher.matches(argument) }; return result }"
+        }
         var parts = parameters.enumerated().map { position, parameter in
             let argument = argumentsFieldCount == 1 ? "arguments" : "arguments.\(parameter.local)"
             return "\(parameter.matcher).matches(\(argument))"
@@ -852,6 +1206,11 @@ private struct SubscriptMember {
     }
     var argumentsFieldCount: Int { parameters.count + (kind == .set ? 1 : 0) }
     var invocationArguments: String {
+        if isTransient, argumentsFieldCount > 1 {
+            let fields = parameters.map { "\($0.local): \($0.local)" } + (kind == .set ? ["newValue: newValue"] : [])
+            return "\(argumentsType)(\(fields.joined(separator: ", ")))"
+        }
+        if kind == .get, parameters.count == 1, parameters[0].isPack { return "(repeat each \(parameters[0].local))" }
         let fields = parameters.map { "\($0.local): \($0.local)" } + (kind == .set ? ["newValue: newValue"] : [])
         if fields.isEmpty { return "()" }
         if fields.count == 1 { return parameters[0].local }
@@ -861,39 +1220,94 @@ private struct SubscriptMember {
         guard kind == .get else { return "" }
         let generics = declaration.genericParameterClause?.trimmedDescription ?? ""
         let whereClause = declaration.genericWhereClause.map { rewriteType($0.trimmedDescription, replacements: replacements, mockType: mockType) } ?? ""
-        let getter = "get {\n            do { return try _mock_subscript_get_\(index).invoke(\(invocationArguments)) }\n            catch { preconditionFailure(\"Unstubbed nonthrowing member subscript.get: \\(error)\") }\n        }"
-        let setterArgs = Self(declaration: declaration, kind: .set, index: index, access: access, parameters: parameters, valueType: valueType, isReadWrite: true, factoryIsolation: factoryIsolation, replacements: replacements, mockType: mockType).invocationArguments
-        let setter = isReadWrite ? "\n        set {\n            do { return try _mock_subscript_set_\(index).invoke(\(setterArgs)) }\n            catch { preconditionFailure(\"Unstubbed nonthrowing member subscript.set: \\(error)\") }\n        }" : ""
+        let call = "try \(witnessChannelReference).invoke(\(invocationArguments))"
+        let getterBody: String
+        if let typedError {
+            getterBody = "\(witnessRegistryResolution)do { return \(call) }\n            catch let error as \(typedError) { throw error }\n            catch { preconditionFailure(\"Invalid or unstubbed typed-throws member subscript.get: \\(error)\") }"
+        } else if isThrowing {
+            getterBody = "\(witnessRegistryResolution)return \(call)"
+        } else {
+            getterBody = "\(witnessRegistryResolution)do { return \(call) }\n            catch { preconditionFailure(\"Unstubbed nonthrowing member subscript.get: \\(error)\") }"
+        }
+        let getter = "\(getterHeader) {\n            \(getterBody)\n        }"
+        let setterMember = Self(declaration: declaration, kind: .set, index: index, access: access, parameters: parameters, valueType: valueType, isReadWrite: true, factoryIsolation: factoryIsolation, replacements: replacements, mockType: mockType, getterHeader: getterHeader, availability: availability, witnessAttributes: witnessAttributes)
+        let setterArgs = setterMember.invocationArguments
+        let setter = isReadWrite ? "\n        set {\n            \(setterMember.witnessRegistryResolution)do { return try \(setterMember.witnessChannelReference).invoke(\(setterArgs)) }\n            catch { preconditionFailure(\"Unstubbed nonthrowing member subscript.set: \\(error)\") }\n        }" : ""
         let parameterClause = rewriteType(declaration.parameterClause.trimmedDescription, replacements: replacements, mockType: mockType)
-        return "    \(access)subscript\(generics)\(parameterClause) -> \(valueType) \(whereClause){\n        \(getter)\(setter)\n    }"
+        let modifiers = declaration.modifiers.map { $0.name.text == "class" ? "static" : $0.trimmedDescription }.filter { !["public", "package", "internal", "fileprivate", "private"].contains($0) }.joined(separator: " ")
+        let prefix = availability.isEmpty ? "" : availability + "\n"
+        return prefix + witnessAttributes + "    \(access)\(modifiers.isEmpty ? "" : modifiers + " ")subscript\(generics)\(parameterClause) -> \(valueType) \(whereClause){\n        \(getter)\(setter)\n    }"
     }
     var givenFactory: String {
         switch kind {
         case .get:
             let leading = matcherDeclarations.isEmpty ? "" : matcherDeclarations + ", "
-            return factory("static func subscriptGet(\(leading)willReturn values: \(valueType)...) -> Self", "mock.\(channelName).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: values.map(StubOutcome.returnValue))")
+            if isTransient {
+                let returns = factory("static func subscriptGet\(genericClause)(\(factoryArguments(leading + "willProduce producers: (() -> \(valueType))..."))) -> Self\(whereClause)", "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: producers.map(TransientStubOutcome<\(valueType)>.producing))")
+                guard isThrowing else { return returns }
+                let errors = typedError ?? "any Error"
+                return returns + "\n\n" + factory("static func subscriptGet\(genericClause)(\(factoryArguments(leading + "willThrow errors: \(errors)..."))) -> Self\(whereClause)", "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: errors.map(TransientStubOutcome<\(valueType)>.throwing))")
+            }
+            let returns = factory("static func subscriptGet\(genericClause)(\(factoryArguments(leading + "willReturn values: \(valueType)..."))) -> Self\(whereClause)", "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: values.map(StubOutcome.returnValue))")
+            guard isThrowing else { return returns }
+            let errors = typedError ?? "any Error"
+            return returns + "\n\n" + factory("static func subscriptGet\(genericClause)(\(factoryArguments(leading + "willThrow errors: \(errors)..."))) -> Self\(whereClause)", "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: errors.map(StubOutcome.throwError))")
         case .set:
-            return factory("static func subscriptSet(\(matcherDeclarations)) -> Self", "mock.\(channelName).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: [.returnValue(())])")
+            if isTransient { return factory("static func subscriptSet\(genericClause)(\(factoryArguments(matcherDeclarations))) -> Self\(whereClause)", "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: [.producing { () }])") }
+            return factory("static func subscriptSet\(genericClause)(\(factoryArguments(matcherDeclarations))) -> Self\(whereClause)", "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: [.returnValue(())])")
         }
     }
     var verifyFactory: String {
-        verifyFactory("static func \(kind == .get ? "subscriptGet" : "subscriptSet")(\(matcherDeclarations)) -> Self", "mock.\(channelName).verification(matching: \(matcherClosure), count: count)")
+        if isTransient {
+            return verifyFactory("static func \(kind == .get ? "subscriptGet" : "subscriptSet")\(genericClause)(\(factoryArguments(""))) -> Self\(whereClause)", "\(registryResolution)return \(channelReference).verification(count: count)")
+        }
+        return verifyFactory("static func \(kind == .get ? "subscriptGet" : "subscriptSet")\(genericClause)(\(factoryArguments(matcherDeclarations))) -> Self\(whereClause)", "\(registryResolution)return \(channelReference).verification(matching: \(matcherClosure), count: count)")
     }
     var performFactory: String {
-        let actionTypes = parameters.map(\.type) + (kind == .set ? [valueType] : [])
+        let ownership = isTransient ? "borrowing " : ""
+        let actionTypes = parameters.map { ownership + $0.type } + (kind == .set ? [ownership + valueType] : [])
         let actionType = "(" + actionTypes.joined(separator: ", ") + ") -> Void"
-        let actionArgs = parameters.map { argumentsFieldCount == 1 ? "arguments" : "arguments.\($0.local)" } + (kind == .set ? ["arguments.newValue"] : [])
+        let actionArgs = kind == .get && parameters.count == 1 && parameters[0].isPack
+            ? ["repeat each arguments"]
+            : parameters.map { argumentsFieldCount == 1 ? "arguments" : "arguments.\($0.local)" } + (kind == .set ? ["arguments.newValue"] : [])
         let leading = matcherDeclarations.isEmpty ? "" : matcherDeclarations + ", "
-        let outcomes = kind == .set ? ", outcomes: [.returnValue(())]" : ""
-        let body = "mock.\(channelName).addAction(matching: \(matcherClosure), specificity: \(specificity)\(outcomes)) { arguments in action(\(actionArgs.joined(separator: ", "))) }"
-        return factory("static func \(kind == .get ? "subscriptGet" : "subscriptSet")(\(leading)_ action: @escaping \(actionType)) -> Self", body)
+        let outcomes = kind == .set ? (isTransient ? ", outcomes: [.producing { () }]" : ", outcomes: [.returnValue(())]") : ""
+        let body = "\(registryResolution)\(channelReference).addAction(matching: \(matcherClosure), specificity: \(specificity)\(outcomes)) { arguments in action(\(actionArgs.joined(separator: ", "))) }"
+        let actionLabel = parameters.contains(where: \.isPack) ? "perform action" : "_ action"
+        return factory("static func \(kind == .get ? "subscriptGet" : "subscriptSet")\(genericClause)(\(factoryArguments(leading + "\(actionLabel): @escaping \(actionType)"))) -> Self\(whereClause)", body)
+    }
+
+    var genericClause: String { declaration.genericParameterClause?.trimmedDescription ?? "" }
+    var whereClause: String { declaration.genericWhereClause.map { " " + rewriteType($0.trimmedDescription, replacements: replacements, mockType: mockType) } ?? "" }
+
+    private func factoryArguments(_ arguments: String) -> String {
+        var usedReturningLabel = false
+        let tokens = declaration.genericParameterClause?.parameters.compactMap { parameter -> String? in
+            let name = parameter.name.text
+            guard arguments.range(of: "\\b\(NSRegularExpression.escapedPattern(for: name))\\b", options: .regularExpression) == nil else { return nil }
+            if parameter.specifier != nil { return "_ types: repeat (each \(name)).Type" }
+            let appearsInOutput = valueType.range(of: "\\b\(NSRegularExpression.escapedPattern(for: name))\\b", options: .regularExpression) != nil
+            let label = appearsInOutput && !usedReturningLabel
+                ? "returning"
+                : name.prefix(1).lowercased() + String(name.dropFirst()) + "Type"
+            if appearsInOutput { usedReturningLabel = true }
+            return "\(label) _: \(name).Type"
+        } ?? []
+        return (tokens + (arguments.isEmpty ? [] : [arguments])).joined(separator: ", ")
     }
 
     private func factory(_ signature: String, _ body: String) -> String {
-        "        \(access)\(factoryIsolation)\(signature) {\n            Self { mock in\n                \(body)\n            }\n        }"
+        let setup = packMatcherSetup
+        return (availability.isEmpty ? "" : availability.split(separator: "\n").map { "        " + $0 }.joined(separator: "\n") + "\n") + "        \(access)\(factoryIsolation)\(signature) {\n            Self { mock in\n                \(setup)\(body)\n            }\n        }"
     }
     private func verifyFactory(_ signature: String, _ body: String) -> String {
-        "        \(access)\(factoryIsolation)\(signature) {\n            Self { mock, count in\n                \(body)\n            }\n        }"
+        let setup = packMatcherSetup
+        return (availability.isEmpty ? "" : availability.split(separator: "\n").map { "        " + $0 }.joined(separator: "\n") + "\n") + "        \(access)\(factoryIsolation)\(signature) {\n            Self { mock, count in\n                \(setup)\(body)\n            }\n        }"
+    }
+
+    var packMatcherSetup: String {
+        guard parameters.count == 1, let parameter = parameters.first, parameter.isPack else { return "" }
+        return "var specificity = 0\n            for matcher in repeat each \(parameter.matcher) { specificity += matcher.specificity }\n            "
     }
 }
 
@@ -905,6 +1319,33 @@ private struct InitializerMember {
     let mockType: String
     let factoryIsolation: String
     let isActor: Bool
+    let isObjectiveC: Bool
+
+    var isGeneric: Bool { declaration.genericParameterClause != nil }
+    var isTransient: Bool { hasAttribute(named: "MockNoncopyable", in: declaration.attributes) || declaration.trimmedDescription.contains("~Copyable") }
+    var channelType: String { "\(isTransient ? "TransientMockMember" : "MockMember")<\(argumentsType), Void>" }
+    var availability: String { availabilityAttributes(declaration.attributes) }
+    var usesRegistry: Bool { isGeneric || !availability.isEmpty }
+    var genericTypes: String {
+        declaration.genericParameterClause?.parameters.filter { $0.specifier == nil }.map { "\($0.name.text).self" }.joined(separator: ", ") ?? ""
+    }
+    var packGenericNames: [String] { declaration.genericParameterClause?.parameters.compactMap { $0.specifier == nil ? nil : $0.name.text } ?? [] }
+    var registrySetup: String {
+        guard !packGenericNames.isEmpty else { return "" }
+        var value = "var specializationTypeIDs: [ObjectIdentifier] = \(objectIdentifierList(genericTypes))\n            "
+        for name in packGenericNames { value += "for type in repeat (each \(name)).self { specializationTypeIDs.append(ObjectIdentifier(type)) }\n            " }
+        return value
+    }
+    var registryTypes: String { packGenericNames.isEmpty ? objectIdentifierList(genericTypes) : "specializationTypeIDs" }
+    var registryResolution: String {
+        guard usesRegistry else { return "" }
+        return "\(registrySetup)let member: \(channelType) = mock._genericMockRegistry.member(key: \"\(channelName)\", typeIDs: \(registryTypes)) { \(channelType)(name: \"\(displayName)\") }\n            "
+    }
+    var witnessRegistryResolution: String {
+        guard usesRegistry else { return "" }
+        return "\(registrySetup.replacingOccurrences(of: "            ", with: "        "))let member: \(channelType) = _genericMockRegistry.member(key: \"\(channelName)\", typeIDs: \(registryTypes)) { \(channelType)(name: \"\(displayName)\") }\n        "
+    }
+    var channelReference: String { usesRegistry ? "member" : "mock.\(channelName)" }
 
     var channelName: String { "_mock_initializer_\(index)" }
     var displayName: String { "init" + declaration.signature.parameterClause.parameters.map { "\($0.firstName.text):" }.joined() }
@@ -921,14 +1362,17 @@ private struct InitializerMember {
         }
     }
     var argumentsType: String {
-        switch parameters.count {
+        if isTransient { return "Void" }
+        if parameters.count == 1, parameters[0].isPack { return "(\(parameters[0].type))" }
+        return switch parameters.count {
         case 0: "Void"
         case 1: parameters[0].type
         default: "(" + parameters.map { "\($0.local): \($0.type)" }.joined(separator: ", ") + ")"
         }
     }
     var argumentsExpression: String {
-        switch parameters.count {
+        if parameters.count == 1, parameters[0].isPack { return "(repeat each \(parameters[0].local))" }
+        return switch parameters.count {
         case 0: "()"
         case 1: parameters[0].local
         default: "(" + parameters.map { "\($0.local): \($0.local)" }.joined(separator: ", ") + ")"
@@ -937,6 +1381,9 @@ private struct InitializerMember {
     var matcherDeclarations: String { parameters.map(\.declaration).joined(separator: ", ") }
     var matcherClosure: String {
         guard !parameters.isEmpty else { return "{ _ in true }" }
+        if parameters.count == 1, let parameter = parameters.first, parameter.isPack {
+            return "{ arguments in var result = true; for (argument, matcher) in repeat (each arguments, each \(parameter.matcher)) { result = result && matcher.matches(argument) }; return result }"
+        }
         return "{ arguments in " + parameters.map { parameter in
             let value = parameters.count == 1 ? "arguments" : "arguments.\(parameter.local)"
             return "\(parameter.matcher).matches(\(value))"
@@ -944,6 +1391,8 @@ private struct InitializerMember {
     }
     var witness: String {
         let required = isActor ? "" : "required "
+        let override = isObjectiveC && parameters.isEmpty && declaration.optionalMark == nil
+            && declaration.signature.effectSpecifiers == nil ? "override " : ""
         let genericClause = declaration.genericParameterClause?.trimmedDescription ?? ""
         let signature = rewriteType(declaration.signature.trimmedDescription, replacements: replacements, mockType: mockType)
         let whereClause = declaration.genericWhereClause.map { " " + rewriteType($0.trimmedDescription, replacements: replacements, mockType: mockType) } ?? ""
@@ -952,13 +1401,29 @@ private struct InitializerMember {
         let ignored = Set(["required", "public", "package", "internal", "fileprivate", "private"])
         let modifiers = declaration.modifiers.map(\.name.text).filter { !ignored.contains($0) }.joined(separator: " ")
         let modifierPrefix = modifiers.isEmpty ? "" : modifiers + " "
-        return "\(attributePrefix)    \(access)\(required)\(modifierPrefix)init\(declaration.optionalMark?.text ?? "")\(genericClause)\(signature)\(whereClause) {\n        \(channelName).record(\(argumentsExpression))\n    }"
+        let recording = isTransient ? "\(usesRegistry ? "member" : channelName).record()" : "\(usesRegistry ? "member" : channelName).record(\(argumentsExpression))"
+        return "\(attributePrefix)    \(access)\(required)\(override)\(modifierPrefix)init\(declaration.optionalMark?.text ?? "")\(genericClause)\(signature)\(whereClause) {\n        \(witnessRegistryResolution)\(recording)\n    }"
     }
     var verifyFactory: String {
-        """
-                \(access)\(factoryIsolation)static func initializer(\(matcherDeclarations)) -> Self {
+        let availabilityPrefix = availability.isEmpty ? "" : availability.split(separator: "\n").map { "        " + $0 }.joined(separator: "\n") + "\n"
+        if isTransient {
+            let typeTokens = declaration.genericParameterClause?.parameters.map { parameter -> String in
+                if parameter.specifier != nil { return "_ types: repeat (each \(parameter.name.text)).Type" }
+                let label = parameter.name.text.prefix(1).lowercased() + String(parameter.name.text.dropFirst()) + "Type"
+                return "\(label) _: \(parameter.name.text).Type"
+            }.joined(separator: ", ") ?? ""
+            return availabilityPrefix + """
+                    \(access)\(factoryIsolation)static func initializer\(declaration.genericParameterClause?.trimmedDescription ?? "")(\(typeTokens)) -> Self\(declaration.genericWhereClause.map { " " + rewriteType($0.trimmedDescription, replacements: replacements, mockType: mockType) } ?? "") {
+                        Self { mock, count in
+                            \(registryResolution)return \(channelReference).verification(count: count)
+                        }
+                    }
+            """
+        }
+        return availabilityPrefix + """
+                \(access)\(factoryIsolation)static func initializer\(declaration.genericParameterClause?.trimmedDescription ?? "")(\(matcherDeclarations)) -> Self\(declaration.genericWhereClause.map { " " + rewriteType($0.trimmedDescription, replacements: replacements, mockType: mockType) } ?? "") {
                     Self { mock, count in
-                        mock.\(channelName).verification(matching: \(matcherClosure), count: count)
+                        \(registryResolution)return \(channelReference).verification(matching: \(matcherClosure), count: count)
                     }
                 }
         """
@@ -978,6 +1443,58 @@ private func hasAvailabilityAttribute(_ attributes: AttributeListSyntax) -> Bool
     }
 }
 
+private func hasAttribute(named expected: String, in attributes: AttributeListSyntax) -> Bool {
+    attributes.contains { element in
+        guard let attribute = element.as(AttributeSyntax.self) else { return false }
+        return attribute.attributeName.trimmedDescription.split(separator: ".").last == Substring(expected)
+    }
+}
+
+private func availabilityAttributes(_ attributes: AttributeListSyntax) -> String {
+    attributes.compactMap { element -> String? in
+        guard let attribute = element.as(AttributeSyntax.self),
+              attribute.attributeName.trimmedDescription.split(separator: ".").last == "available" else { return nil }
+        return attribute.trimmedDescription
+    }.joined(separator: "\n")
+}
+
+private func witnessAttributePrefix(_ attributes: AttributeListSyntax, indentation: String) -> String {
+    let values = attributes.compactMap { element -> String? in
+        guard let attribute = element.as(AttributeSyntax.self) else { return nil }
+        let name = attribute.attributeName.trimmedDescription.split(separator: ".").last.map(String.init) ?? ""
+        guard !["available", "MockNoncopyable", "MockableAccessor"].contains(name) else { return nil }
+        return indentation + attribute.trimmedDescription
+    }
+    return values.isEmpty ? "" : values.joined(separator: "\n") + "\n"
+}
+
+private func accessorHeader(_ accessor: AccessorDeclSyntax) -> String {
+    var copy = accessor
+    copy.body = nil
+    copy.attributes = []
+    return copy.trimmedDescription
+}
+
+private func parsedTypedError(_ effects: String) -> String? {
+    guard let start = effects.range(of: "throws("), let end = effects[start.upperBound...].firstIndex(of: ")") else { return nil }
+    let type = String(effects[start.upperBound..<end]).trimmingCharacters(in: .whitespaces)
+    return ["Error", "any Error", "any Swift.Error"].contains(type) ? nil : type
+}
+
+private func stableIdentifier(_ text: String) -> String {
+    var hash: UInt64 = 14_695_981_039_346_656_037
+    for byte in text.utf8 {
+        hash ^= UInt64(byte)
+        hash &*= 1_099_511_628_211
+    }
+    return String(hash, radix: 16)
+}
+
+private func objectIdentifierList(_ metatypes: String) -> String {
+    let values = metatypes.split(separator: ",").map { "ObjectIdentifier(\($0.trimmingCharacters(in: .whitespaces)))" }
+    return "[\(values.joined(separator: ", "))]"
+}
+
 private func diagnose(
     _ message: String,
     at node: some SyntaxProtocol,
@@ -987,6 +1504,14 @@ private func diagnose(
 }
 
 private func rewriteType(_ text: String, replacements: [String: String], mockType: String) -> String {
+    var text = text
+    for (associated, replacement) in replacements {
+        text = text.replacingOccurrences(
+            of: #"\bSelf\s*\.\s*"# + NSRegularExpression.escapedPattern(for: associated) + #"\b"#,
+            with: replacement,
+            options: .regularExpression
+        )
+    }
     let mapping = replacements.merging(["Self": mockType]) { current, _ in current }
     let names = mapping.keys.sorted { $0.count > $1.count }.map(NSRegularExpression.escapedPattern)
     guard !names.isEmpty,

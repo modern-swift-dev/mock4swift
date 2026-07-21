@@ -21,6 +21,7 @@ final class AdapterTests: XCTestCase {
         Mock4SwiftXCTest.Verify(StaticTestMock.self, 1, ())
     }
 
+    #if canImport(Darwin)
     func testXCTestAdapterReportsMessageAndSourceLocation() {
         let expectedLine: UInt = 4242
         XCTExpectFailure(
@@ -35,6 +36,7 @@ final class AdapterTests: XCTestCase {
             }
         )
     }
+    #endif
 }
 
 @Test

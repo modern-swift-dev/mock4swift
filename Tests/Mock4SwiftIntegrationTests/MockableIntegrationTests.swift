@@ -2,6 +2,10 @@ import Mock4Swift
 import Mock4SwiftTesting
 import Testing
 
+#if canImport(ObjectiveC)
+import Foundation
+#endif
+
 @Mockable
 private protocol WeatherService {
     var unit: String { get set }
@@ -88,6 +92,82 @@ private protocol ProtocolWhereService<Element> where Element: Equatable {
     associatedtype Element
     mutating func update() -> Int
 }
+
+private struct NoncopyableToken: ~Copyable {
+    let raw: Int
+}
+
+@Mockable
+private protocol NoncopyableService: ~Copyable {
+    @MockNoncopyable
+    var token: NoncopyableToken { get set }
+
+    @MockNoncopyable
+    subscript(_ key: Int) -> NoncopyableToken { get set }
+
+    @MockNoncopyable
+    func inspect(_ token: borrowing NoncopyableToken) -> Int
+
+    @MockNoncopyable
+    func consume(_ prefix: Int, token: consuming NoncopyableToken) -> Int
+
+    @MockNoncopyable
+    func make() -> NoncopyableToken
+}
+
+@Mockable
+private protocol NoncopyableInitializerService: ~Copyable {
+    @MockNoncopyable
+    init(_ token: consuming NoncopyableToken)
+}
+
+@Mockable
+private protocol GenericNoncopyableInitializerService: ~Copyable {
+    @MockNoncopyable
+    init<Value>(_ value: consuming Value) where Value: ~Copyable
+}
+
+@Mockable
+private protocol EffectfulAccessorService {
+    var current: Int { get async throws(LoadFailure) }
+    static subscript(_ key: Int) -> String { get }
+    subscript<Key: Hashable>(_ key: Key) -> String { get async throws }
+}
+
+private protocol IdentifiedValue {
+    var id: Int { get }
+}
+
+private struct Identifier: IdentifiedValue, Equatable {
+    let id: Int
+}
+
+@Mockable
+private protocol PackAndOpaqueService {
+    init<each Seed>(_ seed: repeat each Seed)
+    func describe<each Element>(_ values: repeat each Element) -> Int
+    func identifier(_ value: some IdentifiedValue) -> Int
+    subscript<each Element>(_ values: repeat each Element) -> Int { get }
+}
+
+@Mockable
+private protocol CallbackService {
+    func load(_ key: Int, completion: (Int) -> Void)
+    func transform<Value: Equatable>(_ value: Value, completion: (Value) -> Void)
+    static func load(_ key: String, completion: (String) -> Void)
+    func combine(_ first: (Int) -> Void, second: (String) -> Void)
+}
+
+#if canImport(ObjectiveC)
+@objc
+@Mockable
+private protocol ObjectiveCService: NSObjectProtocol {
+    @objc(fetchValue:)
+    optional func fetch(_ value: Int) -> String?
+
+    @objc optional var title: String? { get }
+}
+#endif
 
 @Test
 private func generatedMockSupportsMethodsPropertiesAndTypedDSL() async throws {
@@ -194,14 +274,17 @@ private func generatedMockSupportsTypedThrows() throws {
 @Test
 private func generatedMockIsolatesGenericSpecializationsAndSupportsRethrows() throws {
     let mock = GenericServiceMock()
+    var callbackValue = 0
 
     Given(mock, .echo(.value("input"), willReturn: "output"))
     Given(mock, .echo(.value(1), willReturn: 2))
     Given(mock, .run(willReturn: 42))
+    Perform(mock, .run { (callback: () throws -> Int) in callbackValue = (try? callback()) ?? -1 })
 
     #expect(mock.echo("input") == "output")
     #expect(mock.echo(1) == 2)
     #expect(try mock.run { () throws -> Int in 0 } == 42)
+    #expect(callbackValue == 0)
 
     Verify(mock, 1, .echo(.value("input")))
     Verify(mock, 1, .echo(.value(1)))
@@ -283,3 +366,115 @@ private func generatedMockPreservesProtocolWhereAndDropsValueMutationModifier() 
     #expect(mock.update() == 1)
     Verify(mock, 1, .update())
 }
+
+@Test
+private func generatedTransientMemberDoesNotRetainAndVerifiesCountOnly() {
+    let mock = NoncopyableServiceMock()
+    var inspected = 0
+    Given(mock, .inspect(.matching { $0.raw == 3 }, willProduce: { 9 }))
+    Given(mock, .consume(.value(2), token: .matching { $0.raw == 3 }, willProduce: { 10 }))
+    Given(mock, .make(willProduce: { NoncopyableToken(raw: 4) }))
+    Given(mock, .token(willProduce: { NoncopyableToken(raw: 6) }))
+    Given(mock, .token(set: .any))
+    Given(mock, .subscriptGet(.value(1), willProduce: { NoncopyableToken(raw: 8) }))
+    Given(mock, .subscriptSet(.value(1), value: .any))
+    Perform(mock, .inspect(.any) { inspected = $0.raw })
+
+    #expect(mock.inspect(NoncopyableToken(raw: 3)) == 9)
+    #expect(mock.consume(2, token: NoncopyableToken(raw: 3)) == 10)
+    let made = mock.make()
+    let property = mock.token
+    mock.token = NoncopyableToken(raw: 7)
+    let indexed = mock[1]
+    mock[1] = NoncopyableToken(raw: 9)
+    #expect(made.raw == 4)
+    #expect(property.raw == 6)
+    #expect(indexed.raw == 8)
+    #expect(inspected == 3)
+    Verify(mock, 1, .inspect())
+    Verify(mock, 1, .consume(token: ()))
+    Verify(mock, 1, .make())
+    Verify(mock, 1, .token())
+    Verify(mock, 1, .token(set: ()))
+    Verify(mock, 1, .subscriptGet())
+    Verify(mock, 1, .subscriptSet())
+
+    let initialized = NoncopyableInitializerServiceMock(NoncopyableToken(raw: 5))
+    Verify(initialized, 1, .initializer())
+    let genericInitialized = GenericNoncopyableInitializerServiceMock(NoncopyableToken(raw: 6))
+    Verify(genericInitialized, 1, .initializer(valueType: NoncopyableToken.self))
+}
+
+@Test
+private func generatedEffectfulPropertiesAndStaticGenericSubscripts() async throws {
+    let mock = EffectfulAccessorServiceMock()
+    Given(mock, .current(willReturn: 8))
+    Given(EffectfulAccessorServiceMock.self, .subscriptGet(.value(2), willReturn: "two"))
+    Given(mock, .subscriptGet(.value("key"), willReturn: "value"))
+
+    #expect(try await mock.current == 8)
+    #expect(EffectfulAccessorServiceMock[2] == "two")
+    #expect(try await mock["key"] == "value")
+    Verify(mock, 1, .current())
+    Verify(EffectfulAccessorServiceMock.self, 1, .subscriptGet(.value(2)))
+    Verify(mock, 1, .subscriptGet(.value("key")))
+}
+
+@Test
+private func generatedValuePackAndOpaqueParameterFactories() {
+    let mock = PackAndOpaqueServiceMock(0, "seed")
+    Given(mock, .describe(.value(1), .value("a"), willReturn: 2))
+    Given(mock, .identifier(.value(Identifier(id: 7)), willReturn: 7))
+    Given(mock, .subscriptGet(.value(1), .value("a"), willReturn: 3))
+
+    #expect(mock.describe(1, "a") == 2)
+    #expect(mock.identifier(Identifier(id: 7)) == 7)
+    #expect(mock[1, "a"] == 3)
+    Verify(mock, 1, .initializer(.value(0), .value("seed")))
+    Verify(mock, 1, .describe(.value(1), .value("a")))
+    Verify(mock, 1, .identifier(.value(Identifier(id: 7))))
+    Verify(mock, 1, .subscriptGet(.value(1), .value("a")))
+}
+
+@Test
+private func generatedNonescapingCallbackActionsAreSynchronousAndRecordOtherArguments() {
+    let mock = CallbackServiceMock()
+    var received = 0
+    Perform(mock, .load(.value(4)) { key, completion in completion(key + 1) })
+
+    mock.load(4) { received = $0 }
+    #expect(received == 5)
+    Verify(mock, 1, .load(.value(4)))
+
+    var transformed = 0
+    Perform(mock, .transform(.value(6)) { value, completion in completion(value + 1) })
+    mock.transform(6) { transformed = $0 }
+    #expect(transformed == 7)
+    Verify(mock, 1, .transform(.value(6)))
+
+    var staticValue = ""
+    Perform(CallbackServiceMock.self, .load(.value("a")) { value, completion in completion(value + "b") })
+    CallbackServiceMock.load("a") { staticValue = $0 }
+    #expect(staticValue == "ab")
+    Verify(CallbackServiceMock.self, 1, .load(.value("a")))
+
+    var combined = ""
+    Perform(mock, .combine { first, second in first(3); second("x") })
+    mock.combine({ combined += String($0) }, second: { combined += $0 })
+    #expect(combined == "3x")
+    Verify(mock, 1, .combine())
+}
+
+#if canImport(ObjectiveC)
+@Test
+private func generatedObjectiveCMockSubclassesNSObjectAndImplementsOptionalRequirements() {
+    let mock = ObjectiveCServiceMock()
+    Given(mock, .fetch(.value(1), willReturn: "one"))
+    Given(mock, .title(willReturn: "title"))
+
+    #expect(mock.fetch(1) == "one")
+    #expect(mock.title == "title")
+    Verify(mock, 1, .fetch(.value(1)))
+    Verify(mock, 1, .title())
+}
+#endif

@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    container: swift:6.3
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift build -c release
+      - run: swift test
+
+  apple:
+    runs-on: macos-26
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Swift 6.3
+        run: |
+          swift --version
+          swift --version | grep -F 'Swift version 6.3'
+      - run: xcodebuild test -scheme mock-4-swift-Package -destination 'platform=macOS'
+      - name: Build Apple platforms
+        run: |
+          for platform in iOS tvOS watchOS; do
+            for scheme in Mock4SwiftTesting Mock4SwiftXCTest; do
+              xcodebuild clean build -scheme "$scheme" -destination "generic/platform=$platform"
+            done
+          done

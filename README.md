@@ -12,7 +12,7 @@ Add the package to a Swift 6.3 project, then add `Mock4Swift` and exactly one ru
 // or: .product(name: "Mock4SwiftXCTest", package: "mock-4-swift")
 ```
 
-The package supports iOS 17, macOS 13, tvOS 17, and watchOS 10 or newer.
+The package supports Swift 6.3 on Linux and iOS 17, macOS 13, tvOS 17, and watchOS 10 or newer.
 
 ## Basic usage
 
@@ -53,6 +53,7 @@ let lastCity = cities.lastValue
 
 resetMock(weather)                         // all state
 resetMock(weather, scopes: [.invocations]) // selected state
+resetMock(ServiceMock.self, scopes: [.stubs, .actions])
 ```
 
 Verification counts include integer literals, `.never`, `.exactly`, `.atLeast`, `.atMost`, and `.between`.
@@ -68,24 +69,52 @@ Verify(ServiceMock.self, 1, .make(.value(2)))
 Verify(mock, 1, .subscriptGet(.value("answer")))
 ```
 
-Static state is isolated by concrete mock metatype and generic specialization. Required initializers construct without stubbing, record their arguments, and can be checked with `Verify(mock, .initializer(...))`.
+Static state is isolated by concrete mock metatype and generic specialization. Required initializers construct without stubbing, record their arguments, and can be checked with `Verify(mock, .initializer(...))`. Generic initializers and value-pack initializers use the same typed factory.
+
+## Noncopyable requirements
+
+Use `@MockNoncopyable` when a requirement mentions a named noncopyable type. Requirements that syntactically use `~Copyable` are selected automatically:
+
+```swift
+struct Token: ~Copyable { let raw: Int }
+
+@Mockable
+protocol TokenService: ~Copyable {
+    @MockNoncopyable
+    func inspect(_ token: borrowing Token) -> Int
+}
+
+let mock = TokenServiceMock()
+Given(mock, .inspect(.matching { $0.raw == 7 }, willProduce: { 1 }))
+Verify(mock, 1, .inspect())
+```
+
+These members use a transient channel: arguments are borrowed and never retained, `.any` and `.matching` select a producer, and `willProduce` sequences repeat their final producer. `Perform` receives borrowed arguments. Post-call verification is count-only, so `.inspect()` takes no argument matchers. `Parameter<Value>` supports noncopyable values; `.value` and captors remain copyable-only.
 
 ## Supported protocol syntax
 
 `@Mockable` supports:
 
-- instance and static methods and properties;
-- read-only and read-write synchronous subscripts;
+- instance and static methods, properties, and subscripts;
+- read-only/read-write properties and subscripts, including async, untyped/typed-throwing getters and static or generic subscripts;
 - sync/async methods, untyped throws, typed throws, and `rethrows`;
-- generic methods and static generic methods with constraints;
+- generic methods, initializers, and subscripts with constraints;
+- standard value packs, plus `some Protocol` input parameters;
 - associated and primary associated types with constraints;
 - overloads, variadics, `inout` snapshots, and copyable ownership modifiers;
-- standalone `Self` inputs and results;
-- `AnyObject`, `Sendable`, `Actor`, protocol-level availability, and global-actor isolation.
+- `Self` inputs/results and dependent `Self.Associated` paths;
+- `AnyObject`, `Sendable`, `Actor`, `~Copyable`, protocol/member availability, and global-actor isolation.
 
-For `rethrows`, nonescaping throwing closures cannot legally be retained as invocation data. Mock4Swift omits those closure values from matching while retaining other parameters. A generic result type may therefore be supplied to verification explicitly, for example `.run(returning: Int.self)`.
+Nonescaping callback values are forwarded synchronously to `Perform` and are never retained; remaining arguments stay matchable and verifiable:
 
-## Inherited protocols
+```swift
+Perform(mock, .load(.value(4)) { key, completion in completion(key + 1) })
+mock.load(4) { value in print(value) }
+```
+
+This applies to `rethrows` too. Multiple ordinary nonescaping closure parameters are supported. Nonescaping initializer closures remain unsupported because an initializer cannot safely retain or replay them.
+
+## Inherited protocols and composition aliases
 
 Peer macros cannot inspect requirements inherited from a custom protocol. Declare the complete witness surface on a handwritten final mock and use `@MockableMembers`:
 
@@ -106,7 +135,37 @@ final class ChildMock: Child {
 }
 ```
 
-The macro supplies bodies, typed DSL factories, channels, resets, and `Mock` conformance. Bodyless methods, get/set properties, and initializers are supported. Swift rejects bodyless class subscripts before accessor-macro synthesis, so inherited subscript witnesses must currently be implemented manually.
+The macro supplies bodies, typed DSL factories, channels, resets, and `Mock` conformance. Bodyless methods, get/set properties, and initializers are supported. Swift rejects bodyless class subscripts before accessor-macro synthesis; use the accessor-body escape hatch below.
+
+This escape hatch also supports protocol-composition aliases because the handwritten mock declares the complete witness surface:
+
+```swift
+typealias Combined = ParentA & ParentB
+
+@MockableMembers
+final class CombinedMock: Combined {
+    func parentAMember() -> Int
+    func parentBMember() -> String
+}
+```
+
+For inherited subscripts, invoke `#MockableAccessor()` in each accessor body. The setter needs an explicit `Void` context:
+
+```swift
+@MockableMembers
+final class IndexedMock: IndexedParent {
+    subscript(_ key: String) -> Int {
+        get { #MockableAccessor() }
+        set { #MockableAccessor() as Void }
+    }
+}
+```
+
+This generates the usual `subscriptGet` and `subscriptSet` DSL. Swift 6.3 rejects the originally proposed `@MockableAccessor get` / `set` form before macro synthesis; the freestanding expression macro is the replacement.
+
+## Objective-C protocols
+
+On Apple platforms, `@Mockable` supports `@objc` protocols inheriting `NSObjectProtocol`, including optional methods and properties. Generated mocks subclass `NSObject`, preserve Objective-C attributes/selectors, and provide the normal strict typed DSL. This support is unavailable on Linux.
 
 ## Strict behavior
 
@@ -116,6 +175,8 @@ Generated mocks do not invent defaults for `Void`, optionals, properties, setter
 
 `Mock4SwiftTesting.Verify` records a failed `VerificationResult` with `Testing.Issue.record` and the caller's `SourceLocation`. `Mock4SwiftXCTest.Verify` uses `XCTFail(_:file:line:)`. If both adapters are imported, qualify `Verify` with the module name.
 
-## Version 1 limits
+## Swift 6.3 limits
 
-Opaque `some` requirements, parameter packs, dependent `Self.Associated` types, explicitly noncopyable recording, member-level availability, generic initializers, async/throwing property accessors, static/generic/async/throwing subscripts, and nonescaping non-`rethrows` function parameters are diagnosed rather than partially generated. Objective-C optional requirements, distributed actors, protocol-composition typealiases, and fully noncopyable argument recording are outside version 1.
+Distributed actors are unsupported. Protocol requirements cannot use opaque `some` results in Swift; `some` input parameters are supported. Swift 6.3 rejects noncopyable associated types, so Mock4Swift diagnoses them precisely. Parameter packs currently require one pack parameter, and named noncopyable types require `@MockNoncopyable`.
+
+Direct `@Mockable` generation cannot inspect custom inherited protocols or protocol-composition aliases; use `@MockableMembers`. Generic requirements with several noncopyable arguments require a named wrapper parameter. Transient requirements with nonescaping callbacks, nonescaping initializer closures, and settable parameter-pack subscripts remain excluded with targeted diagnostics.

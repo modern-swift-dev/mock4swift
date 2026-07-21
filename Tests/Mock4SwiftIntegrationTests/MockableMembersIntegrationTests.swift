@@ -75,3 +75,61 @@ private func actorHandwrittenMockKeepsConfigurationNonisolated() async {
     #expect(await mock.value() == 5)
     Verify(mock, 1, .value())
 }
+
+private protocol IndexedParent {
+    subscript(_ key: String) -> Int { get set }
+}
+
+private protocol NamedParent {
+    func name() -> String
+}
+
+private typealias CombinedParents = IndexedParent & NamedParent
+
+@MockableMembers
+private final class CombinedParentsMock: CombinedParents {
+    subscript(_ key: String) -> Int {
+        get { #MockableAccessor() }
+        set { #MockableAccessor() as Void }
+    }
+
+    func name() -> String
+}
+
+@Test
+private func compositionAliasAndExplicitAccessorExpressionsUseGeneratedSupport() {
+    let mock = CombinedParentsMock()
+    Given(mock, .subscriptGet(.value("key"), willReturn: 1))
+    Given(mock, .subscriptSet(.value("key"), value: .value(2)))
+    Given(mock, .name(willReturn: "combined"))
+
+    #expect(mock["key"] == 1)
+    mock["key"] = 2
+    #expect(mock.name() == "combined")
+    Verify(mock, 1, .subscriptGet(.value("key")))
+    Verify(mock, 1, .subscriptSet(.value("key"), value: .value(2)))
+}
+
+private enum InheritedAccessorError: Error {
+    case unavailable
+}
+
+private protocol EffectfulIndexedParent {
+    subscript(_ key: Int) -> Int { get async throws(InheritedAccessorError) }
+}
+
+@MockableMembers
+private final class EffectfulIndexedParentMock: EffectfulIndexedParent {
+    subscript(_ key: Int) -> Int {
+        get async throws(InheritedAccessorError) { #MockableAccessor() }
+    }
+}
+
+@Test
+private func effectfulExplicitAccessorExpressionUsesGeneratedSupport() async throws {
+    let mock = EffectfulIndexedParentMock()
+    Given(mock, .subscriptGet(.value(1), willReturn: 7))
+
+    #expect(try await mock[1] == 7)
+    Verify(mock, 1, .subscriptGet(.value(1)))
+}
