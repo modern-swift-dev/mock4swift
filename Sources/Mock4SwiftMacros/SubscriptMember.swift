@@ -1,0 +1,233 @@
+import Foundation
+import SwiftDiagnostics
+import SwiftSyntax
+import SwiftSyntaxBuilder
+import SwiftSyntaxMacros
+
+/// Models generated channels, accessors, and factories for a subscript requirement.
+struct SubscriptMember {
+    enum Kind { case get, set }
+    let declaration: SubscriptDeclSyntax
+    let kind: Kind
+    let index: Int
+    let access: String
+    let parameters: [ParameterInfo]
+    let valueType: String
+    let isReadWrite: Bool
+    let factoryIsolation: String
+    let replacements: [String: String]
+    let mockType: String
+    let getterHeader: String
+    let availability: String
+    let witnessAttributes: String
+
+    var isStatic: Bool { declaration.modifiers.contains { ["static", "class"].contains($0.name.text) } }
+    var isGeneric: Bool { declaration.genericParameterClause != nil }
+    var isTransient: Bool { hasAttribute(named: "MockNoncopyable", in: declaration.attributes) || declaration.trimmedDescription.contains("~Copyable") }
+    var usesRegistry: Bool { isGeneric || !availability.isEmpty }
+    var genericTypes: String { declaration.genericParameterClause?.parameters.filter { $0.specifier == nil }.map { "\($0.name.text).self" }.joined(separator: ", ") ?? "" }
+    var packGenericNames: [String] { declaration.genericParameterClause?.parameters.compactMap { $0.specifier == nil ? nil : $0.name.text } ?? [] }
+    var registrySetup: String {
+        guard !packGenericNames.isEmpty else { return "" }
+        var value = "var specializationTypeIDs: [ObjectIdentifier] = \(objectIdentifierList(genericTypes))\n            "
+        for name in packGenericNames { value += "for type in repeat (each \(name)).self { specializationTypeIDs.append(ObjectIdentifier(type)) }\n            " }
+        return value
+    }
+    var registryTypes: String { packGenericNames.isEmpty ? objectIdentifierList(genericTypes) : "specializationTypeIDs" }
+
+    static func isSupported(_ declaration: SubscriptDeclSyntax) -> Bool {
+        true
+    }
+
+    static func make(_ declaration: SubscriptDeclSyntax, index: Int, access: String, replacements: [String: String], mockType: String, factoryIsolation: String) -> [Self] {
+        guard isSupported(declaration) else { return [] }
+        let parameters = declaration.parameterClause.parameters.enumerated().map { position, parameter in
+            let external = parameter.firstName.text
+            let local = parameter.secondName?.text ?? (external == "_" ? "index\(position)" : external)
+            var type = rewriteType(parameter.type.trimmedDescription, replacements: replacements, mockType: mockType)
+            if parameter.ellipsis != nil { type = "[\(type)]" }
+            return ParameterInfo(external: external, local: local, type: type, matcher: "matching\(position)", position: position)
+        }
+        let settable = (declaration.accessorBlock?.trimmedDescription ?? "{ get }").contains("set")
+        let valueType = rewriteType(declaration.returnClause.type.trimmedDescription, replacements: replacements, mockType: mockType)
+        let accessors: [AccessorDeclSyntax] = {
+            guard let block = declaration.accessorBlock, case .accessors(let list) = block.accessors else { return [] }
+            return Array(list)
+        }()
+        let getterHeader = accessors.first(where: { $0.accessorSpecifier.text == "get" }).map(accessorHeader) ?? "get"
+        let availability = availabilityAttributes(declaration.attributes)
+        let witnessAttributes = witnessAttributePrefix(declaration.attributes, indentation: "    ")
+        var result = [Self(declaration: declaration, kind: .get, index: index, access: access, parameters: parameters, valueType: valueType, isReadWrite: settable, factoryIsolation: factoryIsolation, replacements: replacements, mockType: mockType, getterHeader: getterHeader, availability: availability, witnessAttributes: witnessAttributes)]
+        if settable { result.append(Self(declaration: declaration, kind: .set, index: index, access: access, parameters: parameters, valueType: valueType, isReadWrite: true, factoryIsolation: factoryIsolation, replacements: replacements, mockType: mockType, getterHeader: getterHeader, availability: availability, witnessAttributes: witnessAttributes)) }
+        return result
+    }
+
+    var signatureIdentifierSource: String {
+        let modifiers = declaration.modifiers.map(\.trimmedDescription).filter { !["public", "package", "internal", "fileprivate", "private"].contains($0) }.joined(separator: " ")
+        return [modifiers, declaration.genericParameterClause?.trimmedDescription ?? "", declaration.parameterClause.trimmedDescription, declaration.returnClause.trimmedDescription, declaration.genericWhereClause?.trimmedDescription ?? "", getterHeader].joined(separator: "|")
+    }
+    var channelName: String { "_mock_subscript_\(kind == .get ? "get" : "set")_\(stableIdentifier(signatureIdentifierSource))" }
+    var displayName: String { "subscript.\(kind == .get ? "get" : "set")" }
+    var argumentsType: String {
+        if isTransient, argumentsFieldCount > 1 { return "_MockArguments_\(stableIdentifier(displayName + signatureIdentifierSource))" }
+        if kind == .get, parameters.count == 1, parameters[0].isPack { return "(\(parameters[0].type))" }
+        let fields = parameters.map { "\($0.local): \($0.type)" } + (kind == .set ? ["newValue: \(valueType)"] : [])
+        if fields.isEmpty { return "Void" }
+        if fields.count == 1 { return parameters[0].type }
+        return "(" + fields.joined(separator: ", ") + ")"
+    }
+    var outputType: String { kind == .get ? valueType : "Void" }
+    var getterEffects: String { getterHeader.replacingOccurrences(of: "get", with: "", options: [.anchored]).trimmingCharacters(in: .whitespacesAndNewlines) }
+    var isAsync: Bool { getterEffects.range(of: #"\basync\b"#, options: .regularExpression) != nil }
+    var isThrowing: Bool { getterEffects.range(of: #"\bthrows\b"#, options: .regularExpression) != nil }
+    var typedError: String? { parsedTypedError(getterEffects) }
+    var channelType: String { "\(isTransient ? "TransientMockMember" : "MockMember")<\(argumentsType), \(outputType)>" }
+    var channelConstructor: String { "\(channelType)(name: \"\(displayName)\")" }
+    var registryResolution: String {
+        guard usesRegistry else { return "" }
+        if isStatic {
+            return "\(registrySetup)let member: \(channelType) = StaticMockRegistry.shared.member(owner: mock, key: \"\(channelName)\", typeIDs: \(registryTypes)) { \(channelConstructor) }\n            "
+        }
+        return "\(registrySetup)let member: \(channelType) = mock._genericMockRegistry.member(key: \"\(channelName)\", typeIDs: \(registryTypes)) { \(channelConstructor) }\n            "
+    }
+    var witnessRegistryResolution: String {
+        guard usesRegistry else { return "" }
+        if isStatic {
+            return "\(registrySetup)let member: \(channelType) = StaticMockRegistry.shared.member(owner: Self.self, key: \"\(channelName)\", typeIDs: \(registryTypes)) { \(channelConstructor) }\n            "
+        }
+        return "\(registrySetup)let member: \(channelType) = _genericMockRegistry.member(key: \"\(channelName)\", typeIDs: \(registryTypes)) { \(channelConstructor) }\n            "
+    }
+    var channelReference: String { usesRegistry ? "member" : "mock.\(channelName)" }
+    var witnessChannelReference: String { usesRegistry ? "member" : channelName }
+    var argumentsStructDeclaration: String? {
+        guard isTransient, argumentsFieldCount > 1 else { return nil }
+        let fields = parameters.map { ($0.local, $0.type) } + (kind == .set ? [("newValue", valueType)] : [])
+        return "    private struct \(argumentsType): ~Copyable {\n" + fields.map { "        let \($0.0): \($0.1)" }.joined(separator: "\n") + "\n    }"
+    }
+    var matcherDeclarations: String {
+        let base = parameters.map(\.declaration)
+        return (base + (kind == .set ? ["value: Parameter<\(valueType)>"] : [])).joined(separator: ", ")
+    }
+    var specificity: String {
+        if kind == .get, parameters.count == 1, parameters[0].isPack { return "specificity" }
+        let parts = parameters.map { "\($0.matcher).specificity" } + (kind == .set ? ["value.specificity"] : [])
+        return parts.isEmpty ? "0" : parts.joined(separator: " + ")
+    }
+    var matcherClosure: String {
+        if kind == .get, parameters.count == 1, let parameter = parameters.first, parameter.isPack {
+            return "{ arguments in var result = true; for (argument, matcher) in repeat (each arguments, each \(parameter.matcher)) { result = result && matcher.matches(argument) }; return result }"
+        }
+        var parts = parameters.enumerated().map { position, parameter in
+            let argument = argumentsFieldCount == 1 ? "arguments" : "arguments.\(parameter.local)"
+            return "\(parameter.matcher).matches(\(argument))"
+        }
+        if kind == .set { parts.append("value.matches(arguments.newValue)") }
+        return parts.isEmpty ? "{ _ in true }" : "{ arguments in " + parts.joined(separator: " && ") + " }"
+    }
+    var argumentsFieldCount: Int { parameters.count + (kind == .set ? 1 : 0) }
+    var invocationArguments: String {
+        if isTransient, argumentsFieldCount > 1 {
+            let fields = parameters.map { "\($0.local): \($0.local)" } + (kind == .set ? ["newValue: newValue"] : [])
+            return "\(argumentsType)(\(fields.joined(separator: ", ")))"
+        }
+        if kind == .get, parameters.count == 1, parameters[0].isPack { return "(repeat each \(parameters[0].local))" }
+        let fields = parameters.map { "\($0.local): \($0.local)" } + (kind == .set ? ["newValue: newValue"] : [])
+        if fields.isEmpty { return "()" }
+        if fields.count == 1 { return parameters[0].local }
+        return "(" + fields.joined(separator: ", ") + ")"
+    }
+    var witness: String {
+        guard kind == .get else { return "" }
+        let generics = declaration.genericParameterClause?.trimmedDescription ?? ""
+        let whereClause = declaration.genericWhereClause.map { rewriteType($0.trimmedDescription, replacements: replacements, mockType: mockType) } ?? ""
+        let call = "try \(witnessChannelReference).invoke(\(invocationArguments))"
+        let getterBody: String
+        if let typedError {
+            getterBody = "\(witnessRegistryResolution)do { return \(call) }\n            catch let error as \(typedError) { throw error }\n            catch { preconditionFailure(\"Invalid or unstubbed typed-throws member subscript.get: \\(error)\") }"
+        } else if isThrowing {
+            getterBody = "\(witnessRegistryResolution)return \(call)"
+        } else {
+            getterBody = "\(witnessRegistryResolution)do { return \(call) }\n            catch { preconditionFailure(\"Unstubbed nonthrowing member subscript.get: \\(error)\") }"
+        }
+        let getter = "\(getterHeader) {\n            \(getterBody)\n        }"
+        let setterMember = Self(declaration: declaration, kind: .set, index: index, access: access, parameters: parameters, valueType: valueType, isReadWrite: true, factoryIsolation: factoryIsolation, replacements: replacements, mockType: mockType, getterHeader: getterHeader, availability: availability, witnessAttributes: witnessAttributes)
+        let setterArgs = setterMember.invocationArguments
+        let setter = isReadWrite ? "\n        set {\n            \(setterMember.witnessRegistryResolution)do { return try \(setterMember.witnessChannelReference).invoke(\(setterArgs)) }\n            catch { preconditionFailure(\"Unstubbed nonthrowing member subscript.set: \\(error)\") }\n        }" : ""
+        let parameterClause = rewriteType(declaration.parameterClause.trimmedDescription, replacements: replacements, mockType: mockType)
+        let modifiers = declaration.modifiers.map { $0.name.text == "class" ? "static" : $0.trimmedDescription }.filter { !["public", "package", "internal", "fileprivate", "private"].contains($0) }.joined(separator: " ")
+        let prefix = availability.isEmpty ? "" : availability + "\n"
+        return prefix + witnessAttributes + "    \(access)\(modifiers.isEmpty ? "" : modifiers + " ")subscript\(generics)\(parameterClause) -> \(valueType) \(whereClause){\n        \(getter)\(setter)\n    }"
+    }
+    var givenFactory: String {
+        switch kind {
+        case .get:
+            let leading = matcherDeclarations.isEmpty ? "" : matcherDeclarations + ", "
+            if isTransient {
+                let returns = factory("static func subscriptGet\(genericClause)(\(factoryArguments(leading + "willProduce producers: (() -> \(valueType))..."))) -> Self\(whereClause)", "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: producers.map(TransientStubOutcome<\(valueType)>.producing))")
+                guard isThrowing else { return returns }
+                let errors = typedError ?? "any Error"
+                return returns + "\n\n" + factory("static func subscriptGet\(genericClause)(\(factoryArguments(leading + "willThrow errors: \(errors)..."))) -> Self\(whereClause)", "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: errors.map(TransientStubOutcome<\(valueType)>.throwing))")
+            }
+            let returns = factory("static func subscriptGet\(genericClause)(\(factoryArguments(leading + "willReturn values: \(valueType)..."))) -> Self\(whereClause)", "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: values.map(StubOutcome.returnValue))")
+            guard isThrowing else { return returns }
+            let errors = typedError ?? "any Error"
+            return returns + "\n\n" + factory("static func subscriptGet\(genericClause)(\(factoryArguments(leading + "willThrow errors: \(errors)..."))) -> Self\(whereClause)", "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: errors.map(StubOutcome.throwError))")
+        case .set:
+            if isTransient { return factory("static func subscriptSet\(genericClause)(\(factoryArguments(matcherDeclarations))) -> Self\(whereClause)", "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: [.producing { () }])") }
+            return factory("static func subscriptSet\(genericClause)(\(factoryArguments(matcherDeclarations))) -> Self\(whereClause)", "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: [.returnValue(())])")
+        }
+    }
+    var verifyFactory: String {
+        if isTransient {
+            return verifyFactory("static func \(kind == .get ? "subscriptGet" : "subscriptSet")\(genericClause)(\(factoryArguments(""))) -> Self\(whereClause)", "\(registryResolution)return \(channelReference).verification(count: count)")
+        }
+        return verifyFactory("static func \(kind == .get ? "subscriptGet" : "subscriptSet")\(genericClause)(\(factoryArguments(matcherDeclarations))) -> Self\(whereClause)", "\(registryResolution)return \(channelReference).verification(matching: \(matcherClosure), count: count)")
+    }
+    var performFactory: String {
+        let ownership = isTransient ? "borrowing " : ""
+        let actionTypes = parameters.map { ownership + $0.type } + (kind == .set ? [ownership + valueType] : [])
+        let actionType = "(" + actionTypes.joined(separator: ", ") + ") -> Void"
+        let actionArgs = kind == .get && parameters.count == 1 && parameters[0].isPack
+            ? ["repeat each arguments"]
+            : parameters.map { argumentsFieldCount == 1 ? "arguments" : "arguments.\($0.local)" } + (kind == .set ? ["arguments.newValue"] : [])
+        let leading = matcherDeclarations.isEmpty ? "" : matcherDeclarations + ", "
+        let outcomes = kind == .set ? (isTransient ? ", outcomes: [.producing { () }]" : ", outcomes: [.returnValue(())]") : ""
+        let body = "\(registryResolution)\(channelReference).addAction(matching: \(matcherClosure), specificity: \(specificity)\(outcomes)) { arguments in action(\(actionArgs.joined(separator: ", "))) }"
+        let actionLabel = parameters.contains(where: \.isPack) ? "perform action" : "_ action"
+        return factory("static func \(kind == .get ? "subscriptGet" : "subscriptSet")\(genericClause)(\(factoryArguments(leading + "\(actionLabel): @escaping \(actionType)"))) -> Self\(whereClause)", body)
+    }
+
+    var genericClause: String { declaration.genericParameterClause?.trimmedDescription ?? "" }
+    var whereClause: String { declaration.genericWhereClause.map { " " + rewriteType($0.trimmedDescription, replacements: replacements, mockType: mockType) } ?? "" }
+
+    private func factoryArguments(_ arguments: String) -> String {
+        var usedReturningLabel = false
+        let tokens = declaration.genericParameterClause?.parameters.compactMap { parameter -> String? in
+            let name = parameter.name.text
+            guard arguments.range(of: "\\b\(NSRegularExpression.escapedPattern(for: name))\\b", options: .regularExpression) == nil else { return nil }
+            if parameter.specifier != nil { return "_ types: repeat (each \(name)).Type" }
+            let appearsInOutput = valueType.range(of: "\\b\(NSRegularExpression.escapedPattern(for: name))\\b", options: .regularExpression) != nil
+            let label = appearsInOutput && !usedReturningLabel
+                ? "returning"
+                : name.prefix(1).lowercased() + String(name.dropFirst()) + "Type"
+            if appearsInOutput { usedReturningLabel = true }
+            return "\(label) _: \(name).Type"
+        } ?? []
+        return (tokens + (arguments.isEmpty ? [] : [arguments])).joined(separator: ", ")
+    }
+
+    private func factory(_ signature: String, _ body: String) -> String {
+        let setup = packMatcherSetup
+        return (availability.isEmpty ? "" : availability.split(separator: "\n").map { "        " + $0 }.joined(separator: "\n") + "\n") + "        \(access)\(factoryIsolation)\(signature) {\n            Self { mock in\n                \(setup)\(body)\n            }\n        }"
+    }
+    private func verifyFactory(_ signature: String, _ body: String) -> String {
+        let setup = packMatcherSetup
+        return (availability.isEmpty ? "" : availability.split(separator: "\n").map { "        " + $0 }.joined(separator: "\n") + "\n") + "        \(access)\(factoryIsolation)\(signature) {\n            Self { mock, count in\n                \(setup)\(body)\n            }\n        }"
+    }
+
+    var packMatcherSetup: String {
+        guard parameters.count == 1, let parameter = parameters.first, parameter.isPack else { return "" }
+        return "var specificity = 0\n            for matcher in repeat each \(parameter.matcher) { specificity += matcher.specificity }\n            "
+    }
+}
+
