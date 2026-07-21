@@ -14,6 +14,9 @@ Add the package to a Swift 6.3 project, then add `Mock4Swift` and exactly one ru
 
 The package supports Swift 6.3 on Linux and iOS 17, macOS 13, tvOS 17, and watchOS 10 or newer.
 
+For progressive, runnable examples covering basic through advanced mocking, see the
+[samples guide](samples/README.md).
+
 ## Basic usage
 
 ```swift

@@ -1,0 +1,41 @@
+import Mock4Swift
+import Mock4SwiftTesting
+import Testing
+
+// Attach @Mockable to the protocol used by production code. The macro creates a
+// peer named BasicWeatherServiceMock plus typed Given, Perform, and Verify DSLs.
+@Mockable
+private protocol BasicWeatherService {
+    var unit: String { get set }
+
+    func temperature(for city: String) async throws -> Double
+    func save(_ value: Int)
+}
+
+@Test
+private func basicMockingWorkflow() async throws {
+    // Arrange: construct the generated mock directly. No generated source file,
+    // build plugin, or runtime type lookup is involved.
+    let weather = BasicWeatherServiceMock()
+
+    // Given selects a generated member with normal Swift type checking.
+    // `.value` matches one Equatable argument; `.any` matches every value.
+    Given(weather, .temperature(for: .value("Toronto"), willReturn: 20))
+    Given(weather, .save(.any))
+    Given(weather, .unit(willReturn: "C"))
+    Given(weather, .unit(set: .any))
+
+    // Act: call the mock through the original protocol API.
+    let temperature = try await weather.temperature(for: "Toronto")
+    weather.save(Int(temperature))
+    let originalUnit = weather.unit
+    weather.unit = "F"
+
+    // Assert normal results with the test runner, then use Verify for calls.
+    #expect(temperature == 20)
+    #expect(originalUnit == "C")
+    Verify(weather, 1, .temperature(for: .value("Toronto")))
+    Verify(weather, 1, .save(.any))
+    Verify(weather, 1, .unit())
+    Verify(weather, 1, .unit(set: .value("F")))
+}

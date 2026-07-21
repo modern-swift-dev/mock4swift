@@ -47,6 +47,11 @@ let package = Package(
             name: "Mock4SwiftIntegrationTests",
             dependencies: ["Mock4Swift", "Mock4SwiftTesting", "Mock4SwiftXCTest"]
         ),
+        .testTarget(
+            name: "Mock4SwiftSamples",
+            dependencies: ["Mock4Swift", "Mock4SwiftTesting", "Mock4SwiftXCTest"],
+            path: "samples/Tests"
+        ),
     ],
     swiftLanguageModes: [.v6]
 )
