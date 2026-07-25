@@ -41,16 +41,16 @@ protocol WeatherService {
 
 let weather = WeatherServiceMock()
 
-Given(weather, .temperature(for: .value("Toronto"), willReturn: 20, 21))
-Given(weather, .unit(willReturn: "C"))
-Given(weather, .unit(set: .any))
-Perform(weather, .temperature(for: .any) { city in print(city) })
+Given(weather).temperature(for: .value("Toronto")).willReturn(20, 21)
+Given(weather).unit.willReturn("C")
+Given(weather).unit(set: .any)
+Perform(weather).temperature(for: .any) { city in print(city) }
 
 let value = try await weather.temperature(for: "Toronto")
 weather.unit = "F"
 
-Verify(weather, 1, .temperature(for: .value("Toronto")))
-Verify(weather, 1, .unit(set: .value("F")))
+Verify(weather, 1).temperature(for: .value("Toronto"))
+Verify(weather, 1).unit(set: .value("F"))
 ```
 
 Return sequences and throw sequences each consume values in order, then repeat the final outcome. When registrations overlap, the matcher with the most non-`.any` parameters wins; the newest registration wins a tie.
@@ -61,7 +61,7 @@ Return sequences and throw sequences each consume values in order, then repeat t
 
 ```swift
 let cities = ArgumentCaptor<String>()
-Verify(weather, .atLeast(1), .temperature(for: .capturing(cities)))
+Verify(weather, .atLeast(1)).temperature(for: .capturing(cities))
 let lastCity = cities.lastValue
 
 resetMock(weather)                         // all state
@@ -74,15 +74,15 @@ Verification counts include integer literals, `.never`, `.exactly`, `.atLeast`, 
 ## Static members and subscripts
 
 ```swift
-Given(ServiceMock.self, .make(.value(2), willReturn: "two"))
-Given(mock, .subscriptGet(.value("answer"), willReturn: 42))
-Given(mock, .subscriptSet(.value("answer"), value: .value(43)))
+Given(ServiceMock.self).make(.value(2)).willReturn("two")
+Given(mock).subscriptGet(.value("answer")).willReturn(42)
+Given(mock).subscriptSet(.value("answer"), value: .value(43))
 
-Verify(ServiceMock.self, 1, .make(.value(2)))
-Verify(mock, 1, .subscriptGet(.value("answer")))
+Verify(ServiceMock.self, 1).make(.value(2))
+Verify(mock, 1).subscriptGet(.value("answer"))
 ```
 
-Static state is isolated by concrete mock metatype and generic specialization. Required initializers construct without stubbing, record their arguments, and can be checked with `Verify(mock, .initializer(...))`. Generic initializers and value-pack initializers use the same typed factory.
+Static state is isolated by concrete mock metatype and generic specialization. Required initializers construct without stubbing, record their arguments, and can be checked with `Verify(mock).initializer(...)`. Generic initializers and value-pack initializers use the same typed verification selector.
 
 ## Noncopyable requirements
 
@@ -98,8 +98,8 @@ protocol TokenService: ~Copyable {
 }
 
 let mock = TokenServiceMock()
-Given(mock, .inspect(.matching { $0.raw == 7 }, willProduce: { 1 }))
-Verify(mock, 1, .inspect())
+Given(mock).inspect(.matching { $0.raw == 7 }).willProduce({ 1 })
+Verify(mock, 1).inspect()
 ```
 
 These members use a transient channel: arguments are borrowed and never retained, `.any` and `.matching` select a producer, and `willProduce` sequences repeat their final producer. `Perform` receives borrowed arguments. Post-call verification is count-only, so `.inspect()` takes no argument matchers. `Parameter<Value>` supports noncopyable values; `.value` and captors remain copyable-only.
@@ -121,7 +121,7 @@ These members use a transient channel: arguments are borrowed and never retained
 Nonescaping callback values are forwarded synchronously to `Perform` and are never retained; remaining arguments stay matchable and verifiable:
 
 ```swift
-Perform(mock, .load(.value(4)) { key, completion in completion(key + 1) })
+Perform(mock).load(.value(4)) { key, completion in completion(key + 1) }
 mock.load(4) { value in print(value) }
 ```
 
@@ -143,7 +143,7 @@ protocol Child: Parent {
 }
 ```
 
-`ChildMock` includes parent and child methods, properties, subscripts, initializers, typed DSL factories, channels, and resets. Composition aliases work through an annotated protocol:
+`ChildMock` includes parent and child methods, properties, subscripts, initializers, typed DSL builders, channels, and resets. Composition aliases work through an annotated protocol:
 
 ```swift
 typealias Combined = ParentA & ParentB

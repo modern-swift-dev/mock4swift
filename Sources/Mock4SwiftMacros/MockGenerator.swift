@@ -263,27 +263,32 @@ struct MockGenerator {
 
 
             \(access)struct StaticGiven {
-                fileprivate let apply: (\(mockType).Type) -> Void
+                fileprivate let mock: \(mockType).Type
 
         \(staticGivenFactories)
             }
 
             \(access)struct StaticVerify {
-                fileprivate let apply: (\(mockType).Type, Count) -> VerificationResult
+                fileprivate let mock: \(mockType).Type
+                fileprivate let count: Count
+                fileprivate let report: (VerificationResult) -> Void
 
         \(staticVerifyFactories)
             }
 
             \(access)struct StaticPerform {
-                fileprivate let apply: (\(mockType).Type) -> Void
+                fileprivate let mock: \(mockType).Type
 
         \(staticPerformFactories)
             }
 
-            \(access)\(isolation)static func given(_ given: StaticGiven) { given.apply(self) }
-            \(access)\(isolation)static func perform(_ perform: StaticPerform) { perform.apply(self) }
-            \(access)\(isolation)static func verification(_ verify: StaticVerify, count: Count) -> VerificationResult {
-                verify.apply(self, count)
+            \(access)\(isolation)static func given() -> StaticGiven { StaticGiven(mock: self) }
+            \(access)\(isolation)static func perform() -> StaticPerform { StaticPerform(mock: self) }
+            \(access)\(isolation)static func verification(
+                count: Count,
+                report: @escaping (VerificationResult) -> Void
+            ) -> StaticVerify {
+                StaticVerify(mock: self, count: count, report: report)
             }
             \(access)\(isolation)static func resetMock(_ scopes: MockScope...) {
                 StaticMockRegistry.shared.reset(owner: Self.self, scopes: scopes)
@@ -297,18 +302,22 @@ struct MockGenerator {
             + channelSection
             + defaultInitializer
             + "    \(access)struct Given {\n"
-            + "        fileprivate let apply: (\(mockType)) -> Void\(givenSection)\n"
+            + "        fileprivate let mock: \(mockType)\(givenSection)\n"
             + "    }\n\n"
             + "    \(access)struct Verify {\n"
-            + "        fileprivate let apply: (\(mockType), Count) -> VerificationResult\(verifySection)\n"
+            + "        fileprivate let mock: \(mockType)\n"
+            + "        fileprivate let count: Count\n"
+            + "        fileprivate let report: (VerificationResult) -> Void\(verifySection)\n"
             + "    }\n\n"
             + "    \(access)struct Perform {\n"
-            + "        fileprivate let apply: (\(mockType)) -> Void\(performSection)\n"
+            + "        fileprivate let mock: \(mockType)\(performSection)\n"
             + "    }\n\n"
-            + "    \(access)\(isolation)func given(_ given: Given) {\n        given.apply(self)\n    }\n"
-            + "    \(access)\(isolation)func perform(_ perform: Perform) {\n        perform.apply(self)\n    }\n"
-            + "    \(access)\(isolation)func verification(_ verify: Verify, count: Count) -> VerificationResult {\n"
-            + "        verify.apply(self, count)\n    }\n"
+            + "    \(access)\(isolation)func given() -> Given { Given(mock: self) }\n"
+            + "    \(access)\(isolation)func perform() -> Perform { Perform(mock: self) }\n"
+            + "    \(access)\(isolation)func verification(\n"
+            + "        count: Count,\n"
+            + "        report: @escaping (VerificationResult) -> Void\n"
+            + "    ) -> Verify { Verify(mock: self, count: count, report: report) }\n"
             + "    \(access)\(isolation)func resetMock(_ scopes: MockScope...) {\(resetSection)\(needsGenericRegistry ? "\n        _genericMockRegistry.reset(scopes)" : "")\n    }"
             + staticDSL
             + witnessSection + "\n}"

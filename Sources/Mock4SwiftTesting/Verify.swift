@@ -4,37 +4,37 @@ import Testing
 public func Verify<M: Mock>(
     _ mock: M,
     _ count: Count = .atLeast(1),
-    _ method: M.Verify,
     sourceLocation: SourceLocation = SourceLocation(fileID: #fileID, filePath: #filePath, line: #line, column: #column)
-) {
-    record(mock.verification(method, count: count), sourceLocation: sourceLocation)
+) -> M.Verify {
+    mock.verification(count: count) {
+        record($0, sourceLocation: sourceLocation)
+    }
 }
 
 public func Verify<M: Mock>(
     _ mock: M,
     _ count: Int,
-    _ method: M.Verify,
     sourceLocation: SourceLocation = SourceLocation(fileID: #fileID, filePath: #filePath, line: #line, column: #column)
-) {
-    Verify(mock, .exactly(count), method, sourceLocation: sourceLocation)
+) -> M.Verify {
+    Verify(mock, .exactly(count), sourceLocation: sourceLocation)
 }
 
 public func Verify<M: StaticMock>(
     _ mock: M.Type,
     _ count: Count = .atLeast(1),
-    _ method: M.StaticVerify,
     sourceLocation: SourceLocation = SourceLocation(fileID: #fileID, filePath: #filePath, line: #line, column: #column)
-) {
-    record(M.verification(method, count: count), sourceLocation: sourceLocation)
+) -> M.StaticVerify {
+    M.verification(count: count) {
+        record($0, sourceLocation: sourceLocation)
+    }
 }
 
 public func Verify<M: StaticMock>(
     _ mock: M.Type,
     _ count: Int,
-    _ method: M.StaticVerify,
     sourceLocation: SourceLocation = SourceLocation(fileID: #fileID, filePath: #filePath, line: #line, column: #column)
-) {
-    Verify(mock, .exactly(count), method, sourceLocation: sourceLocation)
+) -> M.StaticVerify {
+    Verify(mock, .exactly(count), sourceLocation: sourceLocation)
 }
 
 private func record(_ result: VerificationResult, sourceLocation: SourceLocation) {

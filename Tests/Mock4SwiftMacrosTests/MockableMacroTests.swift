@@ -39,25 +39,30 @@ final class MockableMacroTests: XCTestCase {
 
             final class EmptyMock: Empty, Mock {
                 struct Given {
-                    fileprivate let apply: (EmptyMock) -> Void
+                    fileprivate let mock: EmptyMock
                 }
 
                 struct Verify {
-                    fileprivate let apply: (EmptyMock, Count) -> VerificationResult
+                    fileprivate let mock: EmptyMock
+                    fileprivate let count: Count
+                    fileprivate let report: (VerificationResult) -> Void
                 }
 
                 struct Perform {
-                    fileprivate let apply: (EmptyMock) -> Void
+                    fileprivate let mock: EmptyMock
                 }
 
-                func given(_ given: Given) {
-                    given.apply(self)
+                func given() -> Given {
+                    Given(mock: self)
                 }
-                func perform(_ perform: Perform) {
-                    perform.apply(self)
+                func perform() -> Perform {
+                    Perform(mock: self)
                 }
-                func verification(_ verify: Verify, count: Count) -> VerificationResult {
-                    verify.apply(self, count)
+                func verification(
+                    count: Count,
+                    report: @escaping (VerificationResult) -> Void
+                ) -> Verify {
+                    Verify(mock: self, count: count, report: report)
                 }
                 func resetMock(_ scopes: MockScope...) {
                 }
@@ -122,40 +127,39 @@ final class MockableMacroTests: XCTestCase {
                 private let _genericMockRegistry = GenericMockRegistry()
 
                 struct Given {
-                    fileprivate let apply: (ServiceMock) -> Void
+                    fileprivate let mock: ServiceMock
 
-                    static func echo<Value>(_ matching0: Parameter<Value>, willReturn values: Value...) -> Self {
-                        Self { mock in
-                        let member: MockMember<Value, Value> = mock._genericMockRegistry.member(key: "_mock_echo_0", typeIDs: [ObjectIdentifier(Value.self)]) {
-                            MockMember<Value, Value>(name: "echo_:")
-                        }
+                    func echo<Value>(_ matching0: Parameter<Value>) -> _Mock4SwiftReturnStub<Value> {
+                        return _Mock4SwiftReturnStub<Value> { values in
+                            let member: MockMember<Value, Value> = mock._genericMockRegistry.member(key: "_mock_echo_0", typeIDs: [ObjectIdentifier(Value.self)]) {
+                                MockMember<Value, Value>(name: "echo_:")
+                            }
                         member.addStub(matching: { arguments in
-                                matching0.matches(arguments)
-                            }, specificity: matching0.specificity, outcomes: values.map(StubOutcome.returnValue))
-                    }
+                                    matching0.matches(arguments)
+                                }, specificity: matching0.specificity, outcomes: values.map(StubOutcome.returnValue))
+                        }
                     }
                 }
 
                 struct Verify {
-                    fileprivate let apply: (ServiceMock, Count) -> VerificationResult
+                    fileprivate let mock: ServiceMock
+                    fileprivate let count: Count
+                    fileprivate let report: (VerificationResult) -> Void
 
-                    static func echo<Value>(_ matching0: Parameter<Value>) -> Self {
-                        Self { mock, count in
+                    func echo<Value>(_ matching0: Parameter<Value>) {
                         let member: MockMember<Value, Value> = mock._genericMockRegistry.member(key: "_mock_echo_0", typeIDs: [ObjectIdentifier(Value.self)]) {
                             MockMember<Value, Value>(name: "echo_:")
                         }
-                        return member.verification(matching: { arguments in
-                                matching0.matches(arguments)
-                            }, count: count)
-                    }
+                        report(member.verification(matching: { arguments in
+                                    matching0.matches(arguments)
+                                }, count: count))
                     }
                 }
 
                 struct Perform {
-                    fileprivate let apply: (ServiceMock) -> Void
+                    fileprivate let mock: ServiceMock
 
-                    static func echo<Value>(_ matching0: Parameter<Value>, _ action: @escaping (Value) -> Void) -> Self {
-                        Self { mock in
+                    func echo<Value>(_ matching0: Parameter<Value>, _ action: @escaping (Value) -> Void) {
                         let member: MockMember<Value, Value> = mock._genericMockRegistry.member(key: "_mock_echo_0", typeIDs: [ObjectIdentifier(Value.self)]) {
                             MockMember<Value, Value>(name: "echo_:")
                         }
@@ -165,17 +169,19 @@ final class MockableMacroTests: XCTestCase {
                             action(arguments)
                         }
                     }
-                    }
                 }
 
-                func given(_ given: Given) {
-                    given.apply(self)
+                func given() -> Given {
+                    Given(mock: self)
                 }
-                func perform(_ perform: Perform) {
-                    perform.apply(self)
+                func perform() -> Perform {
+                    Perform(mock: self)
                 }
-                func verification(_ verify: Verify, count: Count) -> VerificationResult {
-                    verify.apply(self, count)
+                func verification(
+                    count: Count,
+                    report: @escaping (VerificationResult) -> Void
+                ) -> Verify {
+                    Verify(mock: self, count: count, report: report)
                 }
                 func resetMock(_ scopes: MockScope...) {
                     _genericMockRegistry.reset(scopes)
@@ -216,8 +222,8 @@ final class MockableMacroTests: XCTestCase {
         XCTAssertTrue(source.contains("EphemeralActionDispatcher<Void, () throws -> Value>"))
         XCTAssertTrue(source.contains("withoutActuallyEscaping(body)"))
         XCTAssertTrue(source.contains("func run<Value>(_ body: () throws -> Value) rethrows -> Value"))
-        XCTAssertTrue(source.contains("static func run<Value>(returning _: Value.Type) -> Self"))
-        XCTAssertTrue(source.contains("static func run<Value>(_ action: @escaping (() throws -> Value) -> Void) -> Self"))
+        XCTAssertTrue(source.contains("func run<Value>() -> _Mock4SwiftReturnStub<Value>"))
+        XCTAssertTrue(source.contains("func run<Value>(_ action: @escaping (() throws -> Value) -> Void)"))
         XCTAssertTrue(source.contains("Invalid or unstubbed rethrows member"))
         XCTAssertFalse(source.contains("willThrow"))
         XCTAssertFalse(source.contains("Parameter<() throws -> Value>"))
@@ -232,7 +238,7 @@ final class MockableMacroTests: XCTestCase {
             }
             """
         )
-        XCTAssertTrue(source.contains("@available(macOS 99, *)\n        static func future"))
+        XCTAssertTrue(source.contains("@available(macOS 99, *)\n        func future"))
         XCTAssertTrue(source.contains("_genericMockRegistry.member(key: \"_mock_future_0\", typeIDs: [])"))
     }
 
@@ -263,7 +269,7 @@ final class MockableMacroTests: XCTestCase {
             """
         )
         XCTAssertTrue(source.contains("TransientMockMember<Void, Token>"))
-        XCTAssertTrue(source.contains("willProduce producers"))
+        XCTAssertTrue(source.contains("func make() -> _Mock4SwiftProduceStub<Token>"))
         XCTAssertTrue(source.contains("verification(count: count)"))
     }
 
@@ -314,7 +320,7 @@ final class MockableMacroTests: XCTestCase {
 
         XCTAssertTrue(source.hasPrefix("@MainActor\n@available(macOS 14, *)\nfinal class ServiceMock"))
         XCTAssertTrue(source.contains("nonisolated private let _mock_value_0"))
-        XCTAssertTrue(source.contains("nonisolated static func value"))
+        XCTAssertTrue(source.contains("nonisolated func value"))
         XCTAssertTrue(source.contains("nonisolated func given"))
     }
 
@@ -364,9 +370,9 @@ final class MockableMacroTests: XCTestCase {
         XCTAssertTrue(source.contains("_mock_initializer_1.record(name)"))
         XCTAssertTrue(source.contains("required init() async throws(ServiceError)"))
         XCTAssertTrue(source.contains("_mock_initializer_2.record(())"))
-        XCTAssertTrue(source.contains("static func initializer(seed matching0: Parameter<Int>, labels matching1: Parameter<[String]>) -> Self"))
-        XCTAssertTrue(source.contains("static func initializer(name matching0: Parameter<String>) -> Self"))
-        XCTAssertTrue(source.contains("static func initializer() -> Self"))
+        XCTAssertTrue(source.contains("func initializer(seed matching0: Parameter<Int>, labels matching1: Parameter<[String]>)"))
+        XCTAssertTrue(source.contains("func initializer(name matching0: Parameter<String>)"))
+        XCTAssertTrue(source.contains("func initializer()"))
     }
 
     func testGenericInitializerUsesSpecializationRegistry() throws {
@@ -378,7 +384,7 @@ final class MockableMacroTests: XCTestCase {
             """
         )
         XCTAssertTrue(source.contains("_genericMockRegistry.member(key: \"_mock_initializer_0\", typeIDs: [ObjectIdentifier(Value.self)])"))
-        XCTAssertTrue(source.contains("static func initializer<Value>(_ matching0: Parameter<Value>)"))
+        XCTAssertTrue(source.contains("func initializer<Value>(_ matching0: Parameter<Value>)"))
     }
 
     func testOpaqueNoncopyableInitializerUsesSpecializationRegistry() throws {
@@ -391,7 +397,7 @@ final class MockableMacroTests: XCTestCase {
         )
         XCTAssertTrue(source.contains("init<_MockOpaque0: ~Copyable>(_ value: consuming _MockOpaque0)"))
         XCTAssertTrue(source.contains("typeIDs: [ObjectIdentifier(_MockOpaque0.self)]"))
-        XCTAssertTrue(source.contains("static func initializer<_MockOpaque0: ~Copyable>(valueType _: _MockOpaque0.Type)"))
+        XCTAssertTrue(source.contains("func initializer<_MockOpaque0: ~Copyable>(valueType _: _MockOpaque0.Type)"))
     }
 
     func testNonescapingFunctionParameterUsesEphemeralDispatcher() throws {
@@ -404,7 +410,7 @@ final class MockableMacroTests: XCTestCase {
         )
         XCTAssertTrue(source.contains("EphemeralActionDispatcher<Int, (Int) -> Void>"))
         XCTAssertTrue(source.contains("withoutActuallyEscaping(completion)"))
-        XCTAssertTrue(source.contains("static func load(_ matching0: Parameter<Int>, _ action: @escaping (Int, (Int) -> Void) -> Void)"))
+        XCTAssertTrue(source.contains("func load(_ matching0: Parameter<Int>, _ action: @escaping (Int, (Int) -> Void) -> Void)"))
     }
 
     func testPreservesAccessorEffects() throws {
@@ -580,7 +586,7 @@ final class MockableMacroTests: XCTestCase {
             }
             """
         )
-        XCTAssertTrue(source.contains("@available(macOS 99, *)\n        static func initializer(value matching0: Parameter<Int>)"))
+        XCTAssertTrue(source.contains("@available(macOS 99, *)\n        func initializer(value matching0: Parameter<Int>)"))
     }
 
     func testGenericReturnOnlySubscriptFactoriesHaveMetatypeToken() throws {
@@ -591,8 +597,9 @@ final class MockableMacroTests: XCTestCase {
             }
             """
         )
-        XCTAssertTrue(source.contains("static func subscriptGet<Value>(returning _: Value.Type, _ matching0: Parameter<String>) -> Self"))
-        XCTAssertTrue(source.contains("static func subscriptGet<Value>(returning _: Value.Type, _ matching0: Parameter<String>, _ action: @escaping (String) -> Void) -> Self"))
+        XCTAssertTrue(source.contains("func subscriptGet<Value>(_ matching0: Parameter<String>) -> _Mock4SwiftReturnStub<Value>"))
+        XCTAssertTrue(source.contains("func subscriptGet<Value>(returning _: Value.Type, _ matching0: Parameter<String>)"))
+        XCTAssertTrue(source.contains("func subscriptGet<Value>(returning _: Value.Type, _ matching0: Parameter<String>, _ action: @escaping (String) -> Void)"))
     }
 
     private func peerSource(_ source: DeclSyntax, file: StaticString = #filePath, line: UInt = #line) throws -> String {

@@ -14,11 +14,11 @@ final class Mock4SwiftXCTestSample: XCTestCase {
 
         // Only the verification adapter changes. Given, generated mocks, and
         // matcher syntax are shared with Swift Testing.
-        Given(service, .greeting(for: .value("Taylor"), willReturn: "Hello, Taylor"))
+        Given(service).greeting(for: .value("Taylor")).willReturn("Hello, Taylor")
 
         let greeting = service.greeting(for: "Taylor")
 
         XCTAssertEqual(greeting, "Hello, Taylor")
-        Verify(service, 1, .greeting(for: .value("Taylor")))
+        Verify(service, 1).greeting(for: .value("Taylor"))
     }
 }

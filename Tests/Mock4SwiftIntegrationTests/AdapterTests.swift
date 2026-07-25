@@ -8,17 +8,17 @@ final class AdapterTests: XCTestCase {
     func testInstanceAdaptersAcceptSuccessfulVerification() {
         let mock = InstanceMock()
 
-        Mock4SwiftTesting.Verify(mock, .atLeast(1), ())
-        Mock4SwiftTesting.Verify(mock, 1, ())
-        Mock4SwiftXCTest.Verify(mock, .atLeast(1), ())
-        Mock4SwiftXCTest.Verify(mock, 1, ())
+        Mock4SwiftTesting.Verify(mock, .atLeast(1)).check()
+        Mock4SwiftTesting.Verify(mock, 1).check()
+        Mock4SwiftXCTest.Verify(mock, .atLeast(1)).check()
+        Mock4SwiftXCTest.Verify(mock, 1).check()
     }
 
     func testStaticAdaptersAcceptSuccessfulVerification() {
-        Mock4SwiftTesting.Verify(StaticTestMock.self, .atLeast(1), ())
-        Mock4SwiftTesting.Verify(StaticTestMock.self, 1, ())
-        Mock4SwiftXCTest.Verify(StaticTestMock.self, .atLeast(1), ())
-        Mock4SwiftXCTest.Verify(StaticTestMock.self, 1, ())
+        Mock4SwiftTesting.Verify(StaticTestMock.self, .atLeast(1)).check()
+        Mock4SwiftTesting.Verify(StaticTestMock.self, 1).check()
+        Mock4SwiftXCTest.Verify(StaticTestMock.self, .atLeast(1)).check()
+        Mock4SwiftXCTest.Verify(StaticTestMock.self, 1).check()
     }
 
     #if canImport(Darwin)
@@ -28,7 +28,7 @@ final class AdapterTests: XCTestCase {
             "The adapter failure is intentional",
             strict: true,
             failingBlock: {
-                Mock4SwiftXCTest.Verify(FailingMock(), 1, (), file: #filePath, line: expectedLine)
+                Mock4SwiftXCTest.Verify(FailingMock(), 1, file: #filePath, line: expectedLine).check()
             },
             issueMatcher: { issue in
                 issue.compactDescription.contains("adapter failure")
@@ -48,7 +48,7 @@ final class AdapterTests: XCTestCase {
     )
 
     withKnownIssue {
-        Mock4SwiftTesting.Verify(FailingMock(), 1, (), sourceLocation: location)
+        Mock4SwiftTesting.Verify(FailingMock(), 1, sourceLocation: location).check()
     } matching: { issue in
         issue.sourceLocation == location
             && issue.comments.contains(Comment(rawValue: "adapter failure"))
@@ -57,14 +57,17 @@ final class AdapterTests: XCTestCase {
 
 private final class InstanceMock: Mock {
     typealias Given = Void
-    typealias Verify = Void
+    typealias Verify = AdapterVerify
     typealias Perform = Void
 
-    func given(_ method: Void) {}
-    func perform(_ method: Void) {}
+    func given() {}
+    func perform() {}
 
-    func verification(_ method: Void, count: Count) -> VerificationResult {
-        VerificationResult(success: true, message: "")
+    func verification(
+        count: Count,
+        report: @escaping (VerificationResult) -> Void
+    ) -> AdapterVerify {
+        AdapterVerify(result: VerificationResult(success: true, message: ""), report: report)
     }
 
     func resetMock(_ scopes: MockScope...) {}
@@ -72,14 +75,17 @@ private final class InstanceMock: Mock {
 
 private final class StaticTestMock: StaticMock {
     typealias StaticGiven = Void
-    typealias StaticVerify = Void
+    typealias StaticVerify = AdapterVerify
     typealias StaticPerform = Void
 
-    static func given(_ method: Void) {}
-    static func perform(_ method: Void) {}
+    static func given() {}
+    static func perform() {}
 
-    static func verification(_ method: Void, count: Count) -> VerificationResult {
-        VerificationResult(success: true, message: "")
+    static func verification(
+        count: Count,
+        report: @escaping (VerificationResult) -> Void
+    ) -> AdapterVerify {
+        AdapterVerify(result: VerificationResult(success: true, message: ""), report: report)
     }
 
     static func resetMock(_ scopes: MockScope...) {}
@@ -87,15 +93,27 @@ private final class StaticTestMock: StaticMock {
 
 private final class FailingMock: Mock {
     typealias Given = Void
-    typealias Verify = Void
+    typealias Verify = AdapterVerify
     typealias Perform = Void
 
-    func given(_ method: Void) {}
-    func perform(_ method: Void) {}
+    func given() {}
+    func perform() {}
 
-    func verification(_ method: Void, count: Count) -> VerificationResult {
-        VerificationResult(success: false, message: "adapter failure")
+    func verification(
+        count: Count,
+        report: @escaping (VerificationResult) -> Void
+    ) -> AdapterVerify {
+        AdapterVerify(result: VerificationResult(success: false, message: "adapter failure"), report: report)
     }
 
     func resetMock(_ scopes: MockScope...) {}
+}
+
+private struct AdapterVerify {
+    let result: VerificationResult
+    let report: (VerificationResult) -> Void
+
+    func check() {
+        report(result)
+    }
 }

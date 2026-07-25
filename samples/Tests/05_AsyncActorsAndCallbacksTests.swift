@@ -32,16 +32,16 @@ private enum AsyncSampleFailure: Error, Equatable {
     let returning = AsyncSampleServiceMock()
 
     // Configuration itself remains synchronous; effects belong to invocation.
-    Given(returning, .current(willReturn: 8))
-    Given(returning, .fetch(.value("count"), willReturn: 3))
+    Given(returning).current.willReturn(8)
+    Given(returning).fetch(.value("count")).willReturn(3)
 
     #expect(try await returning.current == 8)
     #expect(try await returning.fetch("count") == 3)
-    Verify(returning, 1, .current())
-    Verify(returning, 1, .fetch(.value("count")))
+    Verify(returning, 1).current()
+    Verify(returning, 1).fetch(.value("count"))
 
     let throwing = AsyncSampleServiceMock()
-    Given(throwing, .fetch(.any, willThrow: .unavailable))
+    Given(throwing).fetch(.any).willThrow(.unavailable)
 
     // A typed-throws protocol requirement accepts only its declared error type.
     let error = await #expect(throws: AsyncSampleFailure.self) {
@@ -53,24 +53,24 @@ private enum AsyncSampleFailure: Error, Equatable {
 @Test private func actorMocksConfigureOutsideTheirActor() async {
     let worker = SampleWorkerMock()
 
-    // Generated configuration and verification channels are nonisolated. Only
+    // Generated configuration and verification builders are nonisolated. Only
     // the original actor requirement needs `await`.
-    Given(worker, .work(.any, willReturn: "done"))
+    Given(worker).work(.any).willReturn("done")
 
     #expect(await worker.work(1) == "done")
-    Verify(worker, 1, .work(.value(1)))
+    Verify(worker, 1).work(.value(1))
 }
 
 @Test @MainActor private func globalActorIsolationIsPreserved() {
     let view = MainActorViewServiceMock()
 
-    Given(view, .title(willReturn: "Ready"))
-    Given(MainActorViewServiceMock.self, .enabled(willReturn: true))
+    Given(view).title().willReturn("Ready")
+    Given(MainActorViewServiceMock.self).enabled.willReturn(true)
 
     #expect(view.title() == "Ready")
     #expect(MainActorViewServiceMock.enabled)
-    Verify(view, 1, .title())
-    Verify(MainActorViewServiceMock.self, 1, .enabled())
+    Verify(view, 1).title()
+    Verify(MainActorViewServiceMock.self, 1).enabled()
 }
 
 @Test private func nonescapingCallbacksAreForwardedSynchronously() {
@@ -81,16 +81,16 @@ private enum AsyncSampleFailure: Error, Equatable {
 
     // Callback parameters are not retained or recorded. Perform receives them
     // synchronously, while ordinary arguments remain matchable and verifiable.
-    Perform(service, .load(.value(4)) { key, completion in
+    Perform(service).load(.value(4)) { key, completion in
         completion(key + 1)
-    })
-    Perform(service, .transform(.value(6)) { value, completion in
+    }
+    Perform(service).transform(.value(6)) { value, completion in
         completion(value + 1)
-    })
-    Perform(service, .combine { first, second in
+    }
+    Perform(service).combine { first, second in
         first(3)
         second("x")
-    })
+    }
 
     service.load(4) { loaded = $0 }
     service.transform(6) { transformed = $0 }
@@ -103,7 +103,7 @@ private enum AsyncSampleFailure: Error, Equatable {
     #expect(loaded == 5)
     #expect(transformed == 7)
     #expect(combined == "3x")
-    Verify(service, 1, .load(.value(4)))
-    Verify(service, 1, .transform(.value(6)))
-    Verify(service, 1, .combine())
+    Verify(service, 1).load(.value(4))
+    Verify(service, 1).transform(.value(6))
+    Verify(service, 1).combine()
 }

@@ -24,21 +24,21 @@ public protocol InheritedParent {
 @Test private func inheritedMockUsesGeneratedRuntimeSupport() {
     let mock = InheritedChildMock(seed: 3)
 
-    Given(mock, .inherited(.value(1), willReturn: "one"))
-    Given(mock, .flag(willReturn: true))
-    Given(mock, .flag(set: .any))
-    Given(mock, .own(willReturn: 2))
+    Given(mock).inherited(.value(1)).willReturn("one")
+    Given(mock).flag.willReturn(true)
+    Given(mock).flag(set: .any)
+    Given(mock).own().willReturn(2)
 
     #expect(mock.inherited(1) == "one")
     #expect(mock.flag)
     mock.flag = false
     #expect(mock.own() == 2)
 
-    Verify(mock, 1, .inherited(.value(1)))
-    Verify(mock, 1, .flag())
-    Verify(mock, 1, .flag(set: .value(false)))
-    Verify(mock, 1, .own())
-    Verify(mock, 1, .initializer(seed: .value(3)))
+    Verify(mock, 1).inherited(.value(1))
+    Verify(mock, 1).flag()
+    Verify(mock, 1).flag(set: .value(false))
+    Verify(mock, 1).own()
+    Verify(mock, 1).initializer(seed: .value(3))
 }
 
 @Mockable protocol CrossTargetChild: CrossTargetParent {
@@ -47,19 +47,19 @@ public protocol InheritedParent {
 
 @Test private func samePackageCrossTargetParentIsResolved() {
     let mock = CrossTargetChildMock()
-    Given(mock, .parentValue(.value(1), willReturn: "one"))
-    Given(mock, .childValue(willReturn: 2))
+    Given(mock).parentValue(.value(1)).willReturn("one")
+    Given(mock).childValue().willReturn(2)
 
     #expect(mock.parentValue(1) == "one")
     #expect(mock.childValue() == 2)
-    Verify(mock, 1, .parentValue(.value(1)))
-    Verify(mock, 1, .childValue())
+    Verify(mock, 1).parentValue(.value(1))
+    Verify(mock, 1).childValue()
 }
 
 @Test private func inheritedMockCanBeGeneratedInALibraryTarget() {
     let mock = LibraryTargetChildMock()
-    Given(mock, .parentValue(.value(1), willReturn: "one"))
-    Given(mock, .childValue(willReturn: 2))
+    Given(mock).parentValue(.value(1)).willReturn("one")
+    Given(mock).childValue().willReturn(2)
 
     #expect(mock.parentValue(1) == "one")
     #expect(mock.childValue() == 2)
@@ -71,13 +71,13 @@ public protocol InheritedParent {
 
 @Test private func externalPackageCompositionUsesGeneratedRuntimeSupport() {
     let mock = ExternalPackageChildMock()
-    Given(mock, .baseValue(.value(1), willReturn: "one"))
-    Given(mock, .enabled(willReturn: true))
-    Given(mock, .enabled(set: .any))
-    Given(mock, .subscriptGet(.value("key"), willReturn: 2))
-    Given(mock, .subscriptSet(.value("key"), value: .any))
-    Given(mock, .name(willReturn: "external"))
-    Given(mock, .ownValue(willReturn: 3))
+    Given(mock).baseValue(.value(1)).willReturn("one")
+    Given(mock).enabled.willReturn(true)
+    Given(mock).enabled(set: .any)
+    Given(mock).subscriptGet(.value("key")).willReturn(2)
+    Given(mock).subscriptSet(.value("key"), value: .any)
+    Given(mock).name().willReturn("external")
+    Given(mock).ownValue().willReturn(3)
 
     #expect(mock.baseValue(1) == "one")
     #expect(mock.enabled)
@@ -87,26 +87,26 @@ public protocol InheritedParent {
     #expect(mock.name() == "external")
     #expect(mock.ownValue() == 3)
 
-    Verify(mock, 1, .baseValue(.value(1)))
-    Verify(mock, 1, .enabled())
-    Verify(mock, 1, .enabled(set: .value(false)))
-    Verify(mock, 1, .subscriptGet(.value("key")))
-    Verify(mock, 1, .subscriptSet(.value("key"), value: .value(4)))
-    Verify(mock, 1, .name())
-    Verify(mock, 1, .ownValue())
+    Verify(mock, 1).baseValue(.value(1))
+    Verify(mock, 1).enabled()
+    Verify(mock, 1).enabled(set: .value(false))
+    Verify(mock, 1).subscriptGet(.value("key"))
+    Verify(mock, 1).subscriptSet(.value("key"), value: .value(4))
+    Verify(mock, 1).name()
+    Verify(mock, 1).ownValue()
 }
 
 @Mockable protocol QualifiedExternalPackageChild: ExternalChildProtocols.ExternalIndexedProtocol {}
 
 @Test private func moduleQualifiedExternalParentIsResolved() {
     let mock = QualifiedExternalPackageChildMock()
-    Given(mock, .baseValue(.value(2), willReturn: "two"))
-    Given(mock, .enabled(willReturn: false))
+    Given(mock).baseValue(.value(2)).willReturn("two")
+    Given(mock).enabled.willReturn(false)
 
     #expect(mock.baseValue(2) == "two")
     #expect(!mock.enabled)
-    Verify(mock, 1, .baseValue(.value(2)))
-    Verify(mock, 1, .enabled())
+    Verify(mock, 1).baseValue(.value(2))
+    Verify(mock, 1).enabled()
 }
 
 protocol AssociatedParent {
@@ -118,10 +118,10 @@ protocol AssociatedParent {
 
 @Test private func inheritedAssociatedTypeBecomesMockGenericParameter() {
     let mock = AssociatedChildMock<String>()
-    Given(mock, .inheritedValue(willReturn: "value"))
+    Given(mock).inheritedValue().willReturn("value")
 
     #expect(mock.inheritedValue() == "value")
-    Verify(mock, 1, .inheritedValue())
+    Verify(mock, 1).inheritedValue()
 }
 
 protocol DiamondBase {
@@ -135,10 +135,10 @@ protocol DiamondRight: DiamondBase {}
 
 @Test private func diamondInheritanceGeneratesOneWitness() {
     let mock = DiamondChildMock()
-    Given(mock, .baseValue(willReturn: 3))
+    Given(mock).baseValue().willReturn(3)
 
     #expect(mock.baseValue() == 3)
-    Verify(mock, 1, .baseValue())
+    Verify(mock, 1).baseValue()
 }
 
 @MainActor protocol MainActorParent {
@@ -150,9 +150,9 @@ protocol DiamondRight: DiamondBase {}
 
 @Test @MainActor private func globalActorInheritedMockKeepsConfigurationNonisolated() {
     let mock = MainActorInheritedMock()
-    Given(mock, .value(willReturn: 4))
+    Given(mock).value().willReturn(4)
     #expect(mock.value() == 4)
-    Verify(mock, 1, .value())
+    Verify(mock, 1).value()
 }
 
 protocol ActorParent: Actor {
@@ -163,9 +163,9 @@ protocol ActorParent: Actor {
 
 @Test private func actorInheritedMockKeepsConfigurationNonisolated() async {
     let mock = ActorInheritedMock()
-    Given(mock, .value(willReturn: 5))
+    Given(mock).value().willReturn(5)
     #expect(await mock.value() == 5)
-    Verify(mock, 1, .value())
+    Verify(mock, 1).value()
 }
 
 protocol IndexedParent {
@@ -182,15 +182,15 @@ typealias CombinedParents = IndexedParent & NamedParent
 
 @Test private func compositionAliasAndSubscriptsUseGeneratedSupport() {
     let mock = CombinedChildMock()
-    Given(mock, .subscriptGet(.value("key"), willReturn: 1))
-    Given(mock, .subscriptSet(.value("key"), value: .value(2)))
-    Given(mock, .name(willReturn: "combined"))
+    Given(mock).subscriptGet(.value("key")).willReturn(1)
+    Given(mock).subscriptSet(.value("key"), value: .value(2))
+    Given(mock).name().willReturn("combined")
 
     #expect(mock["key"] == 1)
     mock["key"] = 2
     #expect(mock.name() == "combined")
-    Verify(mock, 1, .subscriptGet(.value("key")))
-    Verify(mock, 1, .subscriptSet(.value("key"), value: .value(2)))
+    Verify(mock, 1).subscriptGet(.value("key"))
+    Verify(mock, 1).subscriptSet(.value("key"), value: .value(2))
 }
 
 enum InheritedAccessorError: Error {
@@ -205,8 +205,8 @@ protocol EffectfulIndexedParent {
 
 @Test private func effectfulSubscriptUsesGeneratedSupport() async throws {
     let mock = EffectfulIndexedChildMock()
-    Given(mock, .subscriptGet(.value(1), willReturn: 7))
+    Given(mock).subscriptGet(.value(1)).willReturn(7)
 
     #expect(try await mock[1] == 7)
-    Verify(mock, 1, .subscriptGet(.value(1)))
+    Verify(mock, 1).subscriptGet(.value(1))
 }

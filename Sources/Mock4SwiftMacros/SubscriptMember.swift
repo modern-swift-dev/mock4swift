@@ -322,57 +322,99 @@ struct SubscriptMember {
     var givenFactory: String {
         switch kind {
             case .get:
-                let leading = matcherDeclarations.isEmpty ? "" : matcherDeclarations + ", "
-                if isTransient {
-                    let returns = factory(
-                        "static func subscriptGet\(genericClause)(\(factoryArguments(leading + "willProduce producers: (() -> \(valueType))..."))) -> Self\(whereClause)",
-                        "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: producers.map(TransientStubOutcome<\(valueType)>.producing))"
-                    )
+                if valueType == "Void" {
+                    let successOutcome = isTransient ? "[.producing { () }]" : "[.returnValue(())]"
+                    let success = "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: \(successOutcome))"
                     guard isThrowing else {
-                        return returns
+                        return declaration(
+                            "func subscriptGet\(genericClause)(\(factoryArguments(matcherDeclarations)))\(whereClause)",
+                            body: success
+                        )
                     }
-                    let errors = typedError ?? "any Error"
-                    return returns + "\n\n" + factory(
-                        "static func subscriptGet\(genericClause)(\(factoryArguments(leading + "willThrow errors: \(errors)..."))) -> Self\(whereClause)",
-                        "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: errors.map(TransientStubOutcome<\(valueType)>.throwing))"
+                    let errorType = typedError ?? "any Error"
+                    let handle = "_Mock4SwiftThrowingVoidStub<\(errorType)>"
+                    let errorOutcome = isTransient
+                        ? "errors.map(TransientStubOutcome<\(valueType)>.throwing)"
+                        : "errors.map(StubOutcome.throwError)"
+                    return declaration(
+                        "func subscriptGet\(genericClause)(\(factoryArguments(matcherDeclarations, inferredFrom: handle))) -> \(handle)\(whereClause)",
+                        body: """
+                        \(success)
+                        return \(handle) { errors in
+                            \(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: \(errorOutcome))
+                        }
+                        """,
+                        attribute: "@discardableResult"
                     )
                 }
-                let returns = factory(
-                    "static func subscriptGet\(genericClause)(\(factoryArguments(leading + "willReturn values: \(valueType)..."))) -> Self\(whereClause)",
-                    "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: values.map(StubOutcome.returnValue))"
-                )
-                guard isThrowing else {
-                    return returns
+                if isTransient {
+                    let produceBody = "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: producers.map(TransientStubOutcome<\(valueType)>.producing))"
+                    guard isThrowing else {
+                        let handle = "_Mock4SwiftProduceStub<\(valueType)>"
+                        return declaration(
+                            "func subscriptGet\(genericClause)(\(factoryArguments(matcherDeclarations, inferredFrom: handle))) -> \(handle)\(whereClause)",
+                            body: "return \(handle) { producers in\n                \(produceBody)\n            }"
+                        )
+                    }
+                    let errorType = typedError ?? "any Error"
+                    let handle = "_Mock4SwiftThrowingProduceStub<\(valueType), \(errorType)>"
+                    return declaration(
+                        "func subscriptGet\(genericClause)(\(factoryArguments(matcherDeclarations, inferredFrom: handle))) -> \(handle)\(whereClause)",
+                        body: """
+                        return \(handle)(
+                            willProduce: { producers in
+                                \(produceBody)
+                            },
+                            willThrow: { errors in
+                                \(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: errors.map(TransientStubOutcome<\(valueType)>.throwing))
+                            }
+                        )
+                        """
+                    )
                 }
-                let errors = typedError ?? "any Error"
-                return returns + "\n\n" + factory(
-                    "static func subscriptGet\(genericClause)(\(factoryArguments(leading + "willThrow errors: \(errors)..."))) -> Self\(whereClause)",
-                    "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: errors.map(StubOutcome.throwError))"
+                let returnBody = "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: values.map(StubOutcome.returnValue))"
+                guard isThrowing else {
+                    let handle = "_Mock4SwiftReturnStub<\(valueType)>"
+                    return declaration(
+                        "func subscriptGet\(genericClause)(\(factoryArguments(matcherDeclarations, inferredFrom: handle))) -> \(handle)\(whereClause)",
+                        body: "return \(handle) { values in\n                \(returnBody)\n            }"
+                    )
+                }
+                let errorType = typedError ?? "any Error"
+                let handle = "_Mock4SwiftThrowingReturnStub<\(valueType), \(errorType)>"
+                return declaration(
+                    "func subscriptGet\(genericClause)(\(factoryArguments(matcherDeclarations, inferredFrom: handle))) -> \(handle)\(whereClause)",
+                    body: """
+                    return \(handle)(
+                        willReturn: { values in
+                            \(returnBody)
+                        },
+                        willThrow: { errors in
+                            \(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: errors.map(StubOutcome.throwError))
+                        }
+                    )
+                    """
                 )
             case .set:
-                if isTransient {
-                    return factory(
-                        "static func subscriptSet\(genericClause)(\(factoryArguments(matcherDeclarations))) -> Self\(whereClause)",
-                        "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: [.producing { () }])"
-                    )
-                }
-                return factory(
-                    "static func subscriptSet\(genericClause)(\(factoryArguments(matcherDeclarations))) -> Self\(whereClause)",
-                    "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: [.returnValue(())])"
+                let outcomes = isTransient ? "[.producing { () }]" : "[.returnValue(())]"
+                return declaration(
+                    "func subscriptSet\(genericClause)(\(factoryArguments(matcherDeclarations)))\(whereClause)",
+                    body: "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: \(outcomes))"
                 )
         }
     }
 
     var verifyFactory: String {
+        let signature = "func \(kind == .get ? "subscriptGet" : "subscriptSet")\(genericClause)"
         if isTransient {
-            return verifyFactory(
-                "static func \(kind == .get ? "subscriptGet" : "subscriptSet")\(genericClause)(\(factoryArguments(""))) -> Self\(whereClause)",
-                "\(registryResolution)return \(channelReference).verification(count: count)"
+            return declaration(
+                "\(signature)(\(factoryArguments("")))\(whereClause)",
+                body: "\(registryResolution)report(\(channelReference).verification(count: count))"
             )
         }
-        return verifyFactory(
-            "static func \(kind == .get ? "subscriptGet" : "subscriptSet")\(genericClause)(\(factoryArguments(matcherDeclarations))) -> Self\(whereClause)",
-            "\(registryResolution)return \(channelReference).verification(matching: \(matcherClosure), count: count)"
+        return declaration(
+            "\(signature)(\(factoryArguments(matcherDeclarations)))\(whereClause)",
+            body: "\(registryResolution)report(\(channelReference).verification(matching: \(matcherClosure), count: count))"
         )
     }
 
@@ -387,9 +429,9 @@ struct SubscriptMember {
         let outcomes = kind == .set ? (isTransient ? ", outcomes: [.producing { () }]" : ", outcomes: [.returnValue(())]") : ""
         let body = "\(registryResolution)\(channelReference).addAction(matching: \(matcherClosure), specificity: \(specificity)\(outcomes)) { arguments in action(\(actionArgs.joined(separator: ", "))) }"
         let actionLabel = parameters.contains(where: \.isPack) ? "perform action" : "_ action"
-        return factory(
-            "static func \(kind == .get ? "subscriptGet" : "subscriptSet")\(genericClause)(\(factoryArguments(leading + "\(actionLabel): @escaping \(actionType)"))) -> Self\(whereClause)",
-            body
+        return declaration(
+            "func \(kind == .get ? "subscriptGet" : "subscriptSet")\(genericClause)(\(factoryArguments(leading + "\(actionLabel): @escaping \(actionType)")))\(whereClause)",
+            body: body
         )
     }
 
@@ -410,11 +452,12 @@ struct SubscriptMember {
         declaration.genericWhereClause.map { " " + rewriteType($0.trimmedDescription, replacements: replacements, mockType: mockType) } ?? ""
     }
 
-    private func factoryArguments(_ arguments: String) -> String {
+    private func factoryArguments(_ arguments: String, inferredFrom: String = "") -> String {
         var usedReturningLabel = false
         let tokens = declaration.genericParameterClause?.parameters.compactMap { parameter -> String? in
             let name = parameter.name.text
-            guard arguments.range(of: "\\b\(NSRegularExpression.escapedPattern(for: name))\\b", options: .regularExpression) == nil else {
+            let inferenceSource = arguments + inferredFrom
+            guard inferenceSource.range(of: "\\b\(NSRegularExpression.escapedPattern(for: name))\\b", options: .regularExpression) == nil else {
                 return nil
             }
             if parameter.specifier != nil {
@@ -432,14 +475,12 @@ struct SubscriptMember {
         return (tokens + (arguments.isEmpty ? [] : [arguments])).joined(separator: ", ")
     }
 
-    private func factory(_ signature: String, _ body: String) -> String {
+    private func declaration(_ signature: String, body: String, attribute: String? = nil) -> String {
         let setup = packMatcherSetup
-        return (availability.isEmpty ? "" : availability.split(separator: "\n").map { "        " + $0 }.joined(separator: "\n") + "\n") + "        \(access)\(factoryIsolation)\(signature) {\n            Self { mock in\n                \(setup)\(body)\n            }\n        }"
-    }
-
-    private func verifyFactory(_ signature: String, _ body: String) -> String {
-        let setup = packMatcherSetup
-        return (availability.isEmpty ? "" : availability.split(separator: "\n").map { "        " + $0 }.joined(separator: "\n") + "\n") + "        \(access)\(factoryIsolation)\(signature) {\n            Self { mock, count in\n                \(setup)\(body)\n            }\n        }"
+        let attributePrefix = attribute.map { "        \($0)\n" } ?? ""
+        return (availability.isEmpty ? "" : availability.split(separator: "\n").map { "        " + $0 }.joined(separator: "\n") + "\n")
+            + attributePrefix
+            + "        \(access)\(factoryIsolation)\(signature) {\n            \(setup)\(body)\n        }"
     }
 
     var packMatcherSetup: String {

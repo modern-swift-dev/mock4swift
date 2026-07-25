@@ -27,20 +27,13 @@ private struct NoncopyableSampleToken: ~Copyable {
     // Noncopyable results cannot be stored in ordinary return outcomes.
     // willProduce creates a fresh value at call time; producer sequences consume
     // in order and repeat the final producer.
-    Given(
-        service,
-        .inspect(
-            .matching { $0.rawValue == 3 },
-            willProduce: { 9 },
-            { 10 }
-        )
-    )
-    Given(service, .make(willProduce: { NoncopyableSampleToken(rawValue: 4) }))
-    Given(service, .token(willProduce: { NoncopyableSampleToken(rawValue: 6) }))
+    Given(service).inspect(.matching { $0.rawValue == 3 }).willProduce({ 9 }, { 10 })
+    Given(service).make().willProduce({ NoncopyableSampleToken(rawValue: 4) })
+    Given(service).token.willProduce({ NoncopyableSampleToken(rawValue: 6) })
 
     // Perform borrows the live argument synchronously. The transient channel
     // never retains it after the call.
-    Perform(service, .inspect(.any) { inspectedValue = $0.rawValue })
+    Perform(service).inspect(.any) { inspectedValue = $0.rawValue }
 
     #expect(service.inspect(NoncopyableSampleToken(rawValue: 3)) == 9)
     #expect(service.inspect(NoncopyableSampleToken(rawValue: 3)) == 10)
@@ -54,9 +47,9 @@ private struct NoncopyableSampleToken: ~Copyable {
 
     // Arguments are deliberately not retained, so post-call verification is
     // count-only and exposes no Parameter matchers or argument captors.
-    Verify(service, .exactly(3), .inspect())
-    Verify(service, 1, .make())
-    Verify(service, 1, .token())
+    Verify(service, .exactly(3)).inspect()
+    Verify(service, 1).make()
+    Verify(service, 1).token()
 }
 
 @Test private func noncopyableInitializersRecordOnlyInvocationCount() {
@@ -64,5 +57,5 @@ private struct NoncopyableSampleToken: ~Copyable {
         NoncopyableSampleToken(rawValue: 5)
     )
 
-    Verify(initialized, 1, .initializer())
+    Verify(initialized, 1).initializer()
 }

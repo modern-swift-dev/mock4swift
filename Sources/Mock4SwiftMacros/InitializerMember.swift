@@ -176,28 +176,24 @@ struct InitializerMember {
             }
             let typeTokens = (explicitTypeTokens + opaqueTypeTokens).joined(separator: ", ")
             return availabilityPrefix + """
-                    \(access)\(factoryIsolation)static func initializer\(genericClause)(\(typeTokens)) -> Self\(declaration.genericWhereClause
+                    \(access)\(factoryIsolation)func initializer\(genericClause)(\(typeTokens))\(declaration.genericWhereClause
                 .map { " " + rewriteType(
                     $0.trimmedDescription,
                     replacements: replacements,
                     mockType: mockType
                 ) } ?? "") {
-                        Self { mock, count in
-                            \(registryResolution)return \(channelReference).verification(count: count)
-                        }
+                        \(registryResolution)report(\(channelReference).verification(count: count))
                     }
             """
         }
         return availabilityPrefix + """
-                \(access)\(factoryIsolation)static func initializer\(genericClause)(\(matcherDeclarations)) -> Self\(declaration.genericWhereClause
+                \(access)\(factoryIsolation)func initializer\(genericClause)(\(matcherDeclarations))\(declaration.genericWhereClause
             .map { " " + rewriteType(
                 $0.trimmedDescription,
                 replacements: replacements,
                 mockType: mockType
             ) } ?? "") {
-                    Self { mock, count in
-                        \(registryResolution)return \(channelReference).verification(matching: \(matcherClosure), count: count)
-                    }
+                    \(registryResolution)report(\(channelReference).verification(matching: \(matcherClosure), count: count))
                 }
         """
     }

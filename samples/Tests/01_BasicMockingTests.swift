@@ -18,10 +18,10 @@ import Testing
 
     // Given selects a generated member with normal Swift type checking.
     // `.value` matches one Equatable argument; `.any` matches every value.
-    Given(weather, .temperature(for: .value("Toronto"), willReturn: 20))
-    Given(weather, .save(.any))
-    Given(weather, .unit(willReturn: "C"))
-    Given(weather, .unit(set: .any))
+    Given(weather).temperature(for: .value("Toronto")).willReturn(20)
+    Given(weather).save(.any)
+    Given(weather).unit.willReturn("C")
+    Given(weather).unit(set: .any)
 
     // Act: call the mock through the original protocol API.
     let temperature = try await weather.temperature(for: "Toronto")
@@ -32,8 +32,8 @@ import Testing
     // Assert normal results with the test runner, then use Verify for calls.
     #expect(temperature == 20)
     #expect(originalUnit == "C")
-    Verify(weather, 1, .temperature(for: .value("Toronto")))
-    Verify(weather, 1, .save(.any))
-    Verify(weather, 1, .unit())
-    Verify(weather, 1, .unit(set: .value("F")))
+    Verify(weather, 1).temperature(for: .value("Toronto"))
+    Verify(weather, 1).save(.any)
+    Verify(weather, 1).unit()
+    Verify(weather, 1).unit(set: .value("F"))
 }

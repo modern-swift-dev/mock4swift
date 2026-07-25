@@ -5,8 +5,11 @@ public protocol Mock: AnyObject {
     associatedtype Given
     associatedtype Verify
     associatedtype Perform
-    func given(_ configuration: Given)
-    func perform(_ configuration: Perform)
-    func verification(_ configuration: Verify, count: Count) -> VerificationResult
+    func given() -> Given
+    func perform() -> Perform
+    func verification(
+        count: Count,
+        report: @escaping (VerificationResult) -> Void
+    ) -> Verify
     func resetMock(_ scopes: MockScope...)
 }

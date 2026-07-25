@@ -15,20 +15,20 @@ public enum _Mock4SwiftAccess {
 @attached(peer, names: arbitrary)
 public macro MockNoncopyable() = #externalMacro(module: "Mock4SwiftMacros", type: "MockNoncopyableMacro")
 
-public func Given<M: Mock>(_ mock: M, _ configuration: M.Given) {
-    mock.given(configuration)
+public func Given<M: Mock>(_ mock: M) -> M.Given {
+    mock.given()
 }
 
-public func Given<M: StaticMock>(_ type: M.Type, _ configuration: M.StaticGiven) {
-    type.given(configuration)
+public func Given<M: StaticMock>(_ type: M.Type) -> M.StaticGiven {
+    type.given()
 }
 
-public func Perform<M: Mock>(_ mock: M, _ configuration: M.Perform) {
-    mock.perform(configuration)
+public func Perform<M: Mock>(_ mock: M) -> M.Perform {
+    mock.perform()
 }
 
-public func Perform<M: StaticMock>(_ type: M.Type, _ configuration: M.StaticPerform) {
-    type.perform(configuration)
+public func Perform<M: StaticMock>(_ type: M.Type) -> M.StaticPerform {
+    type.perform()
 }
 
 public func resetMock(_ mock: some Mock, scopes: [MockScope] = Array(MockScope.all)) {

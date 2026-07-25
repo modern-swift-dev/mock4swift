@@ -195,42 +195,80 @@ struct PropertyMember {
     var givenFactory: String {
         switch kind {
             case .get:
-                if isTransient {
-                    let returns = factory(
-                        "static func \(name)(willProduce producers: (() -> \(type))...) -> Self",
-                        "\(registryResolution)\(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: producers.map(TransientStubOutcome<\(type)>.producing))"
-                    )
+                if type == "Void" {
+                    let successOutcome = isTransient ? "[.producing { () }]" : "[.returnValue(())]"
+                    let success = "\(registryResolution)\(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: \(successOutcome))"
                     guard isThrowing else {
-                        return returns
+                        return declaration("var \(name): Void", body: success)
                     }
-                    let errors = typedError ?? "any Error"
-                    return returns + "\n\n" + factory(
-                        "static func \(name)(willThrow errors: \(errors)...) -> Self",
-                        "\(registryResolution)\(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: errors.map(TransientStubOutcome<\(type)>.throwing))"
+                    let errorType = typedError ?? "any Error"
+                    let handle = "_Mock4SwiftThrowingVoidStub<\(errorType)>"
+                    let errorOutcome = isTransient
+                        ? "errors.map(TransientStubOutcome<\(type)>.throwing)"
+                        : "errors.map(StubOutcome.throwError)"
+                    return declaration(
+                        "var \(name): \(handle)",
+                        body: """
+                        \(success)
+                        return \(handle) { errors in
+                            \(registryResolution)\(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: \(errorOutcome))
+                        }
+                        """
                     )
                 }
-                let returns = factory(
-                    "static func \(name)(willReturn values: \(type)...) -> Self",
-                    "\(registryResolution)\(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: values.map(StubOutcome.returnValue))"
-                )
-                guard isThrowing else {
-                    return returns
+                if isTransient {
+                    let produceBody = "\(registryResolution)\(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: producers.map(TransientStubOutcome<\(type)>.producing))"
+                    guard isThrowing else {
+                        let handle = "_Mock4SwiftProduceStub<\(type)>"
+                        return declaration(
+                            "var \(name): \(handle)",
+                            body: "return \(handle) { producers in\n                \(produceBody)\n            }"
+                        )
+                    }
+                    let errorType = typedError ?? "any Error"
+                    let handle = "_Mock4SwiftThrowingProduceStub<\(type), \(errorType)>"
+                    return declaration(
+                        "var \(name): \(handle)",
+                        body: """
+                        return \(handle)(
+                            willProduce: { producers in
+                                \(produceBody)
+                            },
+                            willThrow: { errors in
+                                \(registryResolution)\(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: errors.map(TransientStubOutcome<\(type)>.throwing))
+                            }
+                        )
+                        """
+                    )
                 }
-                let errors = typedError ?? "any Error"
-                return returns + "\n\n" + factory(
-                    "static func \(name)(willThrow errors: \(errors)...) -> Self",
-                    "\(registryResolution)\(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: errors.map(StubOutcome.throwError))"
+                let returnBody = "\(registryResolution)\(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: values.map(StubOutcome.returnValue))"
+                guard isThrowing else {
+                    let handle = "_Mock4SwiftReturnStub<\(type)>"
+                    return declaration(
+                        "var \(name): \(handle)",
+                        body: "return \(handle) { values in\n                \(returnBody)\n            }"
+                    )
+                }
+                let errorType = typedError ?? "any Error"
+                let handle = "_Mock4SwiftThrowingReturnStub<\(type), \(errorType)>"
+                return declaration(
+                    "var \(name): \(handle)",
+                    body: """
+                    return \(handle)(
+                        willReturn: { values in
+                            \(returnBody)
+                        },
+                        willThrow: { errors in
+                            \(registryResolution)\(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: errors.map(StubOutcome.throwError))
+                        }
+                    )
+                    """
                 )
             case .set:
-                if isTransient {
-                    return factory(
-                        "static func \(name)(set matching: Parameter<\(type)>) -> Self",
-                        "\(registryResolution)\(channelReference).addStub(matching: { matching.matches($0) }, specificity: matching.specificity, outcomes: [.producing { () }])"
-                    )
-                }
-                return factory(
-                    "static func \(name)(set matching: Parameter<\(type)>) -> Self",
-                    "\(registryResolution)\(channelReference).addStub(matching: { matching.matches($0) }, specificity: matching.specificity, outcomes: [.returnValue(())])"
+                let outcomes = isTransient ? "[.producing { () }]" : "[.returnValue(())]"
+                return declaration(
+                    "func \(name)(set matching: Parameter<\(type)>)",
+                    body: "\(registryResolution)\(channelReference).addStub(matching: { matching.matches($0) }, specificity: matching.specificity, outcomes: \(outcomes))"
                 )
         }
     }
@@ -238,47 +276,40 @@ struct PropertyMember {
     var verifyFactory: String {
         switch kind {
             case .get:
-                if isTransient {
-                    return verifyFactory("static func \(name)() -> Self", "\(registryResolution)return \(channelReference).verification(count: count)")
-                }
-                return verifyFactory("static func \(name)() -> Self", "\(registryResolution)return \(channelReference).verification(matching: { _ in true }, count: count)")
+                let verification = isTransient
+                    ? "\(channelReference).verification(count: count)"
+                    : "\(channelReference).verification(matching: { _ in true }, count: count)"
+                return declaration("func \(name)()", body: "\(registryResolution)report(\(verification))")
             case .set:
-                if isTransient {
-                    return verifyFactory("static func \(name)(set: Void = ()) -> Self", "\(registryResolution)return \(channelReference).verification(count: count)")
-                }
-                return verifyFactory(
-                    "static func \(name)(set matching: Parameter<\(type)>) -> Self",
-                    "\(registryResolution)return \(channelReference).verification(matching: { matching.matches($0) }, count: count)"
-                )
+                let signature = isTransient
+                    ? "func \(name)(set: Void = ())"
+                    : "func \(name)(set matching: Parameter<\(type)>)"
+                let verification = isTransient
+                    ? "\(channelReference).verification(count: count)"
+                    : "\(channelReference).verification(matching: { matching.matches($0) }, count: count)"
+                return declaration(signature, body: "\(registryResolution)report(\(verification))")
         }
     }
 
     var performFactory: String {
         switch kind {
             case .get:
-                return factory(
-                    "static func \(name)(_ action: @escaping () -> Void) -> Self",
-                    "\(registryResolution)\(channelReference).addAction(matching: { _ in true }, specificity: 0) { _ in action() }"
+                return declaration(
+                    "func \(name)(_ action: @escaping () -> Void)",
+                    body: "\(registryResolution)\(channelReference).addAction(matching: { _ in true }, specificity: 0) { _ in action() }"
                 )
             case .set:
-                if isTransient {
-                    return factory(
-                        "static func \(name)(set matching: Parameter<\(type)>, _ action: @escaping (borrowing \(type)) -> Void) -> Self",
-                        "\(registryResolution)\(channelReference).addAction(matching: { matching.matches($0) }, specificity: matching.specificity, outcomes: [.producing { () }], action: action)"
-                    )
-                }
-                return factory(
-                    "static func \(name)(set matching: Parameter<\(type)>, _ action: @escaping (\(type)) -> Void) -> Self",
-                    "\(registryResolution)\(channelReference).addAction(matching: { matching.matches($0) }, specificity: matching.specificity, outcomes: [.returnValue(())], action: action)"
+                let ownership = isTransient ? "borrowing " : ""
+                let outcomes = isTransient ? "[.producing { () }]" : "[.returnValue(())]"
+                return declaration(
+                    "func \(name)(set matching: Parameter<\(type)>, _ action: @escaping (\(ownership)\(type)) -> Void)",
+                    body: "\(registryResolution)\(channelReference).addAction(matching: { matching.matches($0) }, specificity: matching.specificity, outcomes: \(outcomes), action: action)"
                 )
         }
     }
 
-    private func factory(_ signature: String, _ body: String) -> String {
-        (availability.isEmpty ? "" : availability.split(separator: "\n").map { "        " + $0 }.joined(separator: "\n") + "\n") + "        \(access)\(factoryIsolation)\(signature) {\n            Self { mock in\n                \(body)\n            }\n        }"
-    }
-
-    private func verifyFactory(_ signature: String, _ body: String) -> String {
-        (availability.isEmpty ? "" : availability.split(separator: "\n").map { "        " + $0 }.joined(separator: "\n") + "\n") + "        \(access)\(factoryIsolation)\(signature) {\n            Self { mock, count in\n                \(body)\n            }\n        }"
+    private func declaration(_ signature: String, body: String) -> String {
+        (availability.isEmpty ? "" : availability.split(separator: "\n").map { "        " + $0 }.joined(separator: "\n") + "\n")
+            + "        \(access)\(factoryIsolation)\(signature) {\n            \(body)\n        }"
     }
 }

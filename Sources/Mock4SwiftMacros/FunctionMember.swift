@@ -360,65 +360,93 @@ struct FunctionMember {
     }
 
     var givenFactory: String {
-        let leading = matcherDeclarations.isEmpty ? "" : matcherDeclarations + ", "
-        if isTransient {
-            let returns: String = if outputType == "Void" {
-                factory(
-                    factorySignature(arguments: matcherDeclarations),
-                    body: "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: [.producing { () }])"
-                )
-            } else {
-                factory(
-                    factorySignature(arguments: "\(leading)willProduce producers: (() -> \(outputType))..."),
-                    body: "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: producers.map(TransientStubOutcome<\(outputType)>.producing))"
-                )
-            }
-            guard isThrowing, !isRethrows else {
-                return returns
-            }
-            let errorType = typedError ?? "any Error"
-            let throwsFactory = factory(
-                factorySignature(arguments: "\(leading)willThrow errors: \(errorType)..."),
-                body: "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: errors.map(TransientStubOutcome<\(outputType)>.throwing))"
-            )
-            return returns + "\n\n" + throwsFactory
-        }
         if outputType == "Void" {
-            let returns = factory(
-                factorySignature(arguments: matcherDeclarations),
-                body: "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: [.returnValue(())])"
-            )
+            let successOutcome = isTransient ? "[.producing { () }]" : "[.returnValue(())]"
+            let success = "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: \(successOutcome))"
             guard isThrowing, !isRethrows else {
-                return returns
+                return method(
+                    fluentSignature(arguments: matcherDeclarations),
+                    body: success
+                )
             }
             let errorType = typedError ?? "any Error"
-            let throwsFactory = factory(
-                factorySignature(arguments: "\(leading)willThrow errors: \(errorType)..."),
-                body: "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: errors.map(StubOutcome.throwError))"
+            let handle = "_Mock4SwiftThrowingVoidStub<\(errorType)>"
+            let errorOutcome = isTransient
+                ? "errors.map(TransientStubOutcome<\(outputType)>.throwing)"
+                : "errors.map(StubOutcome.throwError)"
+            return method(
+                fluentSignature(arguments: matcherDeclarations, returning: handle, inferredFrom: handle),
+                body: """
+                \(success)
+                return \(handle) { errors in
+                    \(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: \(errorOutcome))
+                }
+                """,
+                attribute: "@discardableResult"
             )
-            return returns + "\n\n" + throwsFactory
         }
-        let returns = factory(
-            factorySignature(arguments: "\(leading)willReturn values: \(outputType)..."),
-            body: "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: values.map(StubOutcome.returnValue))"
-        )
+        if isTransient {
+            let produceBody = "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: producers.map(TransientStubOutcome<\(outputType)>.producing))"
+            guard isThrowing, !isRethrows else {
+                let handle = "_Mock4SwiftProduceStub<\(outputType)>"
+                return method(
+                    fluentSignature(arguments: matcherDeclarations, returning: handle, inferredFrom: handle),
+                    body: "return \(handle) { producers in\n                \(produceBody)\n            }"
+                )
+            }
+            let errorType = typedError ?? "any Error"
+            let handle = "_Mock4SwiftThrowingProduceStub<\(outputType), \(errorType)>"
+            return method(
+                fluentSignature(arguments: matcherDeclarations, returning: handle, inferredFrom: handle),
+                body: """
+                return \(handle)(
+                    willProduce: { producers in
+                        \(produceBody)
+                    },
+                    willThrow: { errors in
+                        \(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: errors.map(TransientStubOutcome<\(outputType)>.throwing))
+                    }
+                )
+                """
+            )
+        }
+        let returnBody = "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: values.map(StubOutcome.returnValue))"
         guard isThrowing, !isRethrows else {
-            return returns
+            let handle = "_Mock4SwiftReturnStub<\(outputType)>"
+            return method(
+                fluentSignature(arguments: matcherDeclarations, returning: handle, inferredFrom: handle),
+                body: "return \(handle) { values in\n                \(returnBody)\n            }"
+            )
         }
         let errorType = typedError ?? "any Error"
-        let throwsFactory = factory(
-            factorySignature(arguments: "\(leading)willThrow errors: \(errorType)..."),
-            body: "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: errors.map(StubOutcome.throwError))"
+        let handle = "_Mock4SwiftThrowingReturnStub<\(outputType), \(errorType)>"
+        return method(
+            fluentSignature(arguments: matcherDeclarations, returning: handle, inferredFrom: handle),
+            body: """
+            return \(handle)(
+                willReturn: { values in
+                    \(returnBody)
+                },
+                willThrow: { errors in
+                    \(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: errors.map(StubOutcome.throwError))
+                }
+            )
+            """
         )
-        return returns + "\n\n" + throwsFactory
     }
 
     var verifyFactory: String {
         if isTransient {
             let labels = parameters.filter { $0.external != "_" }.map { "\($0.external): Void = ()" }.joined(separator: ", ")
-            return factory(factorySignature(arguments: labels), body: "\(registryResolution)return \(channelReference).verification(count: count)", verify: true)
+            return method(
+                fluentSignature(arguments: labels),
+                body: "\(registryResolution)report(\(channelReference).verification(count: count))"
+            )
         }
-        return factory(factorySignature(arguments: matcherDeclarations), body: "\(registryResolution)return \(channelReference).verification(matching: \(matcherClosure), count: count)", verify: true)
+        return method(
+            fluentSignature(arguments: matcherDeclarations),
+            body: "\(registryResolution)report(\(channelReference).verification(matching: \(matcherClosure), count: count))"
+        )
     }
 
     var performFactory: String {
@@ -444,18 +472,23 @@ struct FunctionMember {
             body = "\(mainResolution)\(dispatcherResolution)\(mainStub)\(dispatcher).addAction(matching: \(matcherClosure), specificity: \(specificity)) { arguments, ephemeral in \(recordableCall) }"
             let actionTypes = parameters.map(\.type) + ephemeralParameters.map(\.type)
             let actionType = "(" + actionTypes.joined(separator: ", ") + ") -> Void"
-            return factory(factorySignature(arguments: "\(leading)_ action: @escaping \(actionType)"), body: body)
+            return method(fluentSignature(arguments: "\(leading)_ action: @escaping \(actionType)"), body: body)
         }
         body = "\(registryResolution)\(channelReference).addAction(matching: \(matcherClosure), specificity: \(specificity)\(outcomes)) { arguments in \(actionCall) }"
         let actionLabel = parameters.contains(where: \.isPack) ? "perform action" : "_ action"
-        return factory(factorySignature(arguments: "\(leading)\(actionLabel): @escaping \(actionType)"), body: body)
+        return method(fluentSignature(arguments: "\(leading)\(actionLabel): @escaping \(actionType)"), body: body)
     }
 
-    private func factorySignature(arguments: String) -> String {
+    private func fluentSignature(
+        arguments: String,
+        returning returnType: String? = nil,
+        inferredFrom: String = ""
+    ) -> String {
         let genericParameters = (declaration.genericParameterClause?.parameters.map(\.name.text) ?? []) + opaqueParameters.map(\.name)
         var usedReturningLabel = false
         let tokens = genericParameters.compactMap { parameter -> String? in
-            guard arguments.range(of: "\\b\(NSRegularExpression.escapedPattern(for: parameter))\\b", options: .regularExpression) == nil else {
+            let inferenceSource = arguments + inferredFrom
+            guard inferenceSource.range(of: "\\b\(NSRegularExpression.escapedPattern(for: parameter))\\b", options: .regularExpression) == nil else {
                 return nil
             }
             let appearsInOutput = outputType.range(of: "\\b\(NSRegularExpression.escapedPattern(for: parameter))\\b", options: .regularExpression) != nil
@@ -469,17 +502,16 @@ struct FunctionMember {
             return "\(label) _: \(parameter).Type"
         }
         let parameters = (tokens + (arguments.isEmpty ? [] : [arguments])).joined(separator: ", ")
-        return "\(factoryIsolation)static func \(name)\(genericClause)(\(parameters)) -> Self\(whereClause)"
+        let result = returnType.map { " -> \($0)" } ?? ""
+        return "\(factoryIsolation)func \(name)\(genericClause)(\(parameters))\(result)\(whereClause)"
     }
 
-    private func factory(_ signature: String, body: String, verify: Bool = false) -> String {
+    private func method(_ signature: String, body: String, attribute: String? = nil) -> String {
         let body = matcherSetup + body
-        let closure = verify ? "Self { mock, count in\n            \(body)\n        }" : "Self { mock in\n            \(body)\n        }"
-        return availabilityPrefix(indentation: "        ") + """
-                \(access)\(signature) {
-                    \(closure)
-                }
-        """
+        let attributePrefix = attribute.map { "        \($0)\n" } ?? ""
+        return availabilityPrefix(indentation: "        ")
+            + attributePrefix
+            + "        \(access)\(signature) {\n            \(body)\n        }"
     }
 
     private func availabilityPrefix(indentation: String) -> String {
