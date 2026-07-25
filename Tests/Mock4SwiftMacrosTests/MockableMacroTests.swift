@@ -37,7 +37,11 @@ final class MockableMacroTests: XCTestCase {
             expandedSource: """
             protocol Empty {}
 
-            final class EmptyMock: Empty, Mock {
+            final class EmptyMock: Empty, Mock, InOrderMock {
+                fileprivate var _mock4SwiftOrderedInvocations: [_Mock4SwiftInvocation] {
+                    []
+                }
+
                 struct Given {
                     fileprivate let mock: EmptyMock
                 }
@@ -46,6 +50,11 @@ final class MockableMacroTests: XCTestCase {
                     fileprivate let mock: EmptyMock
                     fileprivate let count: Count
                     fileprivate let report: (VerificationResult) -> Void
+                }
+
+                struct OrderExpect {
+                    fileprivate let mock: EmptyMock
+                    fileprivate let order: InOrder
                 }
 
                 struct Perform {
@@ -57,6 +66,9 @@ final class MockableMacroTests: XCTestCase {
                 }
                 func perform() -> Perform {
                     Perform(mock: self)
+                }
+                func orderExpectations(in order: InOrder) -> OrderExpect {
+                    OrderExpect(mock: self, order: order)
                 }
                 func verification(
                     count: Count,
@@ -123,8 +135,12 @@ final class MockableMacroTests: XCTestCase {
                 func echo<Value>(_ value: Value) -> Value
             }
 
-            final class ServiceMock: Service, Mock {
+            final class ServiceMock: Service, Mock, InOrderMock {
                 private let _genericMockRegistry = GenericMockRegistry()
+
+                fileprivate var _mock4SwiftOrderedInvocations: [_Mock4SwiftInvocation] {
+                    _genericMockRegistry.orderedInvocations
+                }
 
                 struct Given {
                     fileprivate let mock: ServiceMock
@@ -156,6 +172,28 @@ final class MockableMacroTests: XCTestCase {
                     }
                 }
 
+                struct OrderExpect {
+                    fileprivate let mock: ServiceMock
+                    fileprivate let order: InOrder
+
+                    func echo<Value>(_ matching0: Parameter<Value>) {
+                        let member: MockMember<Value, Value> = mock._genericMockRegistry.member(key: "_mock_echo_0", typeIDs: [ObjectIdentifier(Value.self)]) {
+                            MockMember<Value, Value>(name: "echo_:")
+                        }
+                        order._append(
+                source: mock, invocations: {
+                    mock._mock4SwiftOrderedInvocations
+                },
+                member: "echo_:",
+                matches: { sequence in
+                    member.matchesInvocation(sequence: sequence, matching: { arguments in
+                            matching0.matches(arguments)
+                        })
+                }
+                        )
+                    }
+                }
+
                 struct Perform {
                     fileprivate let mock: ServiceMock
 
@@ -176,6 +214,9 @@ final class MockableMacroTests: XCTestCase {
                 }
                 func perform() -> Perform {
                     Perform(mock: self)
+                }
+                func orderExpectations(in order: InOrder) -> OrderExpect {
+                    OrderExpect(mock: self, order: order)
                 }
                 func verification(
                     count: Count,

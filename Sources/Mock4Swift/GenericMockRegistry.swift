@@ -10,6 +10,7 @@ public final class GenericMockRegistry: @unchecked Sendable {
     private struct Entry {
         let value: Any
         let reset: ([MockScope]) -> Void
+        let invocations: () -> [_Mock4SwiftInvocation]
     }
 
     private struct TransientEntry {
@@ -18,6 +19,7 @@ public final class GenericMockRegistry: @unchecked Sendable {
         let pointer: UnsafeMutableRawPointer
         let type: ObjectIdentifier
         let reset: ([MockScope]) -> Void
+        let invocations: () -> [_Mock4SwiftInvocation]
         let release: () -> Void
     }
 
@@ -63,7 +65,11 @@ public final class GenericMockRegistry: @unchecked Sendable {
                 }
                 return member
             }
-            entries[lookup] = Entry(value: candidate, reset: candidate.reset)
+            entries[lookup] = Entry(
+                value: candidate,
+                reset: candidate.reset,
+                invocations: { candidate.orderedInvocations }
+            )
             return candidate
         }
     }
@@ -102,7 +108,11 @@ public final class GenericMockRegistry: @unchecked Sendable {
             }
             let retained = Unmanaged.passRetained(candidate)
             transientEntries[lookup] = TransientEntry(
-                pointer: retained.toOpaque(), type: type, reset: candidate.reset, release: retained.release
+                pointer: retained.toOpaque(),
+                type: type,
+                reset: candidate.reset,
+                invocations: { candidate.orderedInvocations },
+                release: retained.release
             )
             return candidate
         }
@@ -139,7 +149,11 @@ public final class GenericMockRegistry: @unchecked Sendable {
                 }
                 return dispatcher
             }
-            entries[lookup] = Entry(value: candidate, reset: candidate.reset)
+            entries[lookup] = Entry(
+                value: candidate,
+                reset: candidate.reset,
+                invocations: { [] }
+            )
             return candidate
         }
     }
@@ -147,5 +161,12 @@ public final class GenericMockRegistry: @unchecked Sendable {
     public func reset(_ scopes: [MockScope] = Array(MockScope.all)) {
         let resets = lock.withLock { entries.values.map(\.reset) + transientEntries.values.map(\.reset) }
         resets.forEach { $0(scopes) }
+    }
+
+    public var orderedInvocations: [_Mock4SwiftInvocation] {
+        let snapshots = lock.withLock {
+            entries.values.map(\.invocations) + transientEntries.values.map(\.invocations)
+        }
+        return snapshots.flatMap { $0() }
     }
 }

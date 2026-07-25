@@ -206,13 +206,29 @@ struct PropertyMember {
                     let errorOutcome = isTransient
                         ? "errors.map(TransientStubOutcome<\(type)>.throwing)"
                         : "errors.map(StubOutcome.throwError)"
+                    let successAppend = isTransient
+                        ? "registration.append([.producing { () }])"
+                        : "registration.append([.returnValue(())])"
+                    let sequence = """
+                    _Mock4SwiftThrowingVoidSequence(
+                                            thenSucceed: { \(successAppend) },
+                                            thenThrow: { errors in registration.append(\(errorOutcome)) }
+                                        )
+                    """
                     return declaration(
                         "var \(name): \(handle)",
                         body: """
                         \(success)
-                        return \(handle) { errors in
-                            \(registryResolution)\(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: \(errorOutcome))
-                        }
+                        return \(handle)(
+                            willSucceed: {
+                                \(registryResolution)let registration = \(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: \(successOutcome))
+                                return \(sequence)
+                            },
+                            willThrow: { errors in
+                                \(registryResolution)let registration = \(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: \(errorOutcome))
+                                return \(sequence)
+                            }
+                        )
                         """
                     )
                 }
@@ -227,15 +243,16 @@ struct PropertyMember {
                     }
                     let errorType = typedError ?? "any Error"
                     let handle = "_Mock4SwiftThrowingProduceStub<\(type), \(errorType)>"
+                    let throwingProduceBody = "\(registryResolution)return \(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: producers.map(TransientStubOutcome<\(type)>.producing))"
                     return declaration(
                         "var \(name): \(handle)",
                         body: """
                         return \(handle)(
                             willProduce: { producers in
-                                \(produceBody)
+                                \(throwingProduceBody)
                             },
                             willThrow: { errors in
-                                \(registryResolution)\(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: errors.map(TransientStubOutcome<\(type)>.throwing))
+                                \(registryResolution)return \(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: errors.map(TransientStubOutcome<\(type)>.throwing))
                             }
                         )
                         """
@@ -251,15 +268,16 @@ struct PropertyMember {
                 }
                 let errorType = typedError ?? "any Error"
                 let handle = "_Mock4SwiftThrowingReturnStub<\(type), \(errorType)>"
+                let throwingReturnBody = "\(registryResolution)return \(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: values.map(StubOutcome.returnValue))"
                 return declaration(
                     "var \(name): \(handle)",
                     body: """
                     return \(handle)(
                         willReturn: { values in
-                            \(returnBody)
+                            \(throwingReturnBody)
                         },
                         willThrow: { errors in
-                            \(registryResolution)\(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: errors.map(StubOutcome.throwError))
+                            \(registryResolution)return \(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: errors.map(StubOutcome.throwError))
                         }
                     )
                     """
@@ -289,6 +307,38 @@ struct PropertyMember {
                     : "\(channelReference).verification(matching: { matching.matches($0) }, count: count)"
                 return declaration(signature, body: "\(registryResolution)report(\(verification))")
         }
+    }
+
+    var orderFactory: String {
+        let signature: String
+        let matches: String
+        switch kind {
+            case .get:
+                signature = "func \(name)()"
+                matches = isTransient
+                    ? "\(channelReference).matchesInvocation(sequence: sequence)"
+                    : "\(channelReference).matchesInvocation(sequence: sequence, matching: { _ in true })"
+            case .set:
+                signature = isTransient
+                    ? "func \(name)(set: Void = ())"
+                    : "func \(name)(set matching: Parameter<\(type)>)"
+                matches = isTransient
+                    ? "\(channelReference).matchesInvocation(sequence: sequence)"
+                    : "\(channelReference).matchesInvocation(sequence: sequence, matching: { matching.matches($0) })"
+        }
+        let source = isStatic
+            ? "sourceType: mock, invocations: { StaticMockRegistry.shared.orderedInvocations(owner: mock) }"
+            : "source: mock, invocations: { mock._mock4SwiftOrderedInvocations }"
+        return declaration(
+            signature,
+            body: """
+            \(registryResolution)order._append(
+                \(source),
+                member: "\(displayName)",
+                matches: { sequence in \(matches) }
+            )
+            """
+        )
     }
 
     var performFactory: String {

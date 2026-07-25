@@ -23,6 +23,12 @@ import Foundation
     subscript(_ key: String) -> Int { get set }
 }
 
+@Mockable private protocol OrderedService {
+    init(seed: Int)
+    static func make(_ value: Int) -> String
+    func save(_ value: Int)
+}
+
 @Mockable private protocol Repository {
     associatedtype Item: Equatable
 
@@ -96,6 +102,7 @@ private struct NoncopyableToken: ~Copyable {
     @MockNoncopyable func consume(_ prefix: Int, token: consuming NoncopyableToken) -> Int
 
     @MockNoncopyable func make() -> NoncopyableToken
+    @MockNoncopyable func makeThrowing() throws(LoadFailure) -> NoncopyableToken
 }
 
 @Mockable private protocol NoncopyableInitializerService: ~Copyable {
@@ -244,6 +251,78 @@ private struct Identifier: IdentifiedValue, Equatable {
     Verify(returning, 1).refresh()
     Verify(throwing, 1).load(.value("missing"))
     Verify(throwing, 1).refresh()
+}
+
+@Test private func generatedThrowingBuildersChainMixedOutcomes() async throws {
+    let values = TypedThrowerMock()
+    Given(values).load(.any)
+        .willReturn(1)
+        .thenThrow(.unavailable)
+        .thenReturn(3)
+
+    #expect(try values.load("first") == 1)
+    #expect(throws: LoadFailure.unavailable) { try values.load("second") }
+    #expect(try values.load("third") == 3)
+    #expect(try values.load("fourth") == 3)
+
+    let void = TypedThrowerMock()
+    Given(void).refresh()
+        .willSucceed()
+        .thenThrow(.unavailable)
+        .thenSucceed()
+
+    try void.refresh()
+    #expect(throws: LoadFailure.unavailable) { try void.refresh() }
+    try void.refresh()
+
+    let transient = NoncopyableServiceMock()
+    Given(transient).makeThrowing()
+        .willProduce({ NoncopyableToken(raw: 1) })
+        .thenThrow(.unavailable)
+        .thenProduce({ NoncopyableToken(raw: 3) })
+
+    #expect(try transient.makeThrowing().raw == 1)
+    #expect(throws: LoadFailure.unavailable) { _ = try transient.makeThrowing() }
+    #expect(try transient.makeThrowing().raw == 3)
+
+    let accessors = EffectfulAccessorServiceMock()
+    Given(accessors).current
+        .willReturn(1)
+        .thenThrow(.unavailable)
+        .thenReturn(3)
+    Given(accessors).subscriptGet(.value("key"))
+        .willReturn("first")
+        .thenThrow(LoadFailure.unavailable)
+        .thenReturn("third")
+
+    #expect(try await accessors.current == 1)
+    await #expect(throws: LoadFailure.unavailable) { try await accessors.current }
+    #expect(try await accessors.current == 3)
+    #expect(try await accessors["key"] == "first")
+    await #expect(throws: LoadFailure.unavailable) { try await accessors["key"] }
+    #expect(try await accessors["key"] == "third")
+}
+
+@Test private func generatedInOrderDSLVerifiesStrictCrossMockSequence() {
+    let weather = WeatherServiceMock()
+    let ordered = OrderedServiceMock(seed: 7)
+
+    Given(weather).save(.any)
+    Given(ordered).save(.any)
+    Given(OrderedServiceMock.self).make(.any).willReturn("made")
+
+    weather.save(1)
+    ordered.save(2)
+    _ = OrderedServiceMock.make(3)
+
+    VerifyInOrder { order in
+        order.expect(ordered).initializer(seed: .value(7))
+        order.expect(weather).save(.value(1))
+        order.expect(ordered).save(.value(2))
+        order.expect(OrderedServiceMock.self).make(.value(3))
+    }
+
+    resetMock(OrderedServiceMock.self)
 }
 
 @Test private func generatedMockIsolatesGenericSpecializationsAndSupportsRethrows() throws {

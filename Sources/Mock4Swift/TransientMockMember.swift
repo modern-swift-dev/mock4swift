@@ -6,7 +6,7 @@ public final class TransientMockMember<Arguments: ~Copyable, Output: ~Copyable>:
         let id: UInt64
         let matches: (borrowing Arguments) -> Bool
         let specificity: Int
-        let outcomes: [TransientStubOutcome<Output>]
+        var outcomes: [TransientStubOutcome<Output>]
     }
 
     private struct Action {
@@ -27,7 +27,7 @@ public final class TransientMockMember<Arguments: ~Copyable, Output: ~Copyable>:
     }
 
     private let lock = NSLock()
-    private var count = 0
+    private var invocations: [UInt64] = []
     private var stubs: [Stub] = []
     private var actions: [Action] = []
     private var actionStubs: [ActionStub] = []
@@ -39,15 +39,25 @@ public final class TransientMockMember<Arguments: ~Copyable, Output: ~Copyable>:
         self.name = name
     }
 
+    @discardableResult
     public func addStub(
         matching: @escaping (borrowing Arguments) -> Bool,
         specificity: Int = 0,
         outcomes: [TransientStubOutcome<Output>]
-    ) {
+    ) -> _Mock4SwiftTransientStubRegistration<Output> {
         precondition(!outcomes.isEmpty, "Mock stubs need at least one outcome")
-        lock.withLock {
+        let id = lock.withLock {
             nextID += 1
             stubs.append(Stub(id: nextID, matches: matching, specificity: specificity, outcomes: outcomes))
+            return nextID
+        }
+        return _Mock4SwiftTransientStubRegistration { [self] outcomes in
+            lock.withLock {
+                guard let index = stubs.firstIndex(where: { $0.id == id }) else {
+                    preconditionFailure("Mock stub registration is no longer active")
+                }
+                stubs[index].outcomes.append(contentsOf: outcomes)
+            }
         }
     }
 
@@ -84,8 +94,9 @@ public final class TransientMockMember<Arguments: ~Copyable, Output: ~Copyable>:
     }
 
     public func invoke(_ arguments: borrowing Arguments) throws -> Output {
+        let sequence = nextMockInvocationSequence()
         let snapshot = lock.withLock { () -> ([Action], [Stub], [ActionStub]) in
-            count += 1
+            invocations.append(sequence)
             return (actions, stubs, actionStubs)
         }
 
@@ -122,11 +133,22 @@ public final class TransientMockMember<Arguments: ~Copyable, Output: ~Copyable>:
     }
 
     public func record() {
-        lock.withLock { count += 1 }
+        let sequence = nextMockInvocationSequence()
+        lock.withLock { invocations.append(sequence) }
     }
 
     public var invocationCount: Int {
-        lock.withLock { count }
+        lock.withLock { invocations.count }
+    }
+
+    public var orderedInvocations: [_Mock4SwiftInvocation] {
+        lock.withLock {
+            invocations.map { .init(sequence: $0, member: name) }
+        }
+    }
+
+    public func matchesInvocation(sequence: UInt64) -> Bool {
+        lock.withLock { invocations.contains(sequence) }
     }
 
     public func verification(count: Count) -> VerificationResult {
@@ -142,7 +164,7 @@ public final class TransientMockMember<Arguments: ~Copyable, Output: ~Copyable>:
         let scopes = Set(scopes)
         lock.withLock {
             if scopes.contains(.invocations) {
-                count = 0
+                invocations.removeAll()
             }
             if scopes.contains(.stubs) {
                 stubs.removeAll()

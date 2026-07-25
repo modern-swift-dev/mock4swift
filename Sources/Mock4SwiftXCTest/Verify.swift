@@ -41,6 +41,16 @@ public func Verify<M: StaticMock>(
     Verify(mock, .exactly(count), file: file, line: line)
 }
 
+public func VerifyInOrder(
+    file: StaticString = #filePath,
+    line: UInt = #line,
+    _ body: (InOrder) -> Void
+) {
+    let order = InOrder()
+    body(order)
+    report(order.verification(), file: file, line: line)
+}
+
 private func report(_ result: VerificationResult, file: StaticString, line: UInt) {
     guard !result.success else {
         return

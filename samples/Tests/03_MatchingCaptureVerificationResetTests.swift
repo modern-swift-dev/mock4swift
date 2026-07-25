@@ -61,6 +61,23 @@ private final class ReferenceItem {}
     #expect(values.values.isEmpty)
 }
 
+@Test private func strictOrderCanSpanMocks() {
+    let first = MatchingServiceMock()
+    let second = MatchingServiceMock()
+    Given(first).record(.any)
+    Given(second).record(.any)
+
+    first.record(1)
+    second.record(2)
+    first.record(3)
+
+    VerifyInOrder { order in
+        order.expect(first).record(.value(1))
+        order.expect(second).record(.value(2))
+        order.expect(first).record(.value(3))
+    }
+}
+
 @Test private func resetScopesClearOnlyRequestedState() throws {
     let service = MatchingServiceMock()
     var actions = 0

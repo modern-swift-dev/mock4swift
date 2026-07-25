@@ -237,21 +237,29 @@ struct MockGenerator {
         let witnesses = (memberWitnesses + (initializerWitnesses.isEmpty ? [] : [initializerWitnesses])).joined(separator: "\n\n")
         let givenFactories = instance.map(\.givenFactory).joined(separator: "\n\n")
         let verifyFactories = (instance.map(\.verifyFactory) + initializers.map(\.verifyFactory)).joined(separator: "\n\n")
+        let orderFactories = (instance.map(\.orderFactory) + initializers.map(\.orderFactory)).joined(separator: "\n\n")
         let performFactories = instance.map(\.performFactory).joined(separator: "\n\n")
         let staticGivenFactories = staticMembers.map(\.givenFactory).joined(separator: "\n\n")
         let staticVerifyFactories = staticMembers.map(\.verifyFactory).joined(separator: "\n\n")
+        let staticOrderFactories = staticMembers.map(\.orderFactory).joined(separator: "\n\n")
         let staticPerformFactories = staticMembers.map(\.performFactory).joined(separator: "\n\n")
         let resets = (instance.filter { !$0.usesRegistry }.map { "        \($0.channelName).reset(scopes)" } + instance.compactMap(\.ephemeralReset) + initializers.filter { !$0.usesRegistry }
             .map { "        \($0.channelName).reset(scopes)" }).joined(separator: "\n")
         let channelSection = channels.isEmpty ? "" : channels + "\n\n"
         let givenSection = givenFactories.isEmpty ? "" : "\n\n" + givenFactories
         let verifySection = verifyFactories.isEmpty ? "" : "\n\n" + verifyFactories
+        let orderSection = orderFactories.isEmpty ? "" : "\n\n" + orderFactories
         let performSection = performFactories.isEmpty ? "" : "\n\n" + performFactories
         let witnessSection = witnesses.isEmpty ? "" : "\n\n" + witnesses
         let resetSection = resets.isEmpty ? "" : "\n" + resets + "\n    "
         let needsGenericRegistry = !genericMembers.isEmpty || initializers.contains(where: \.usesRegistry)
         let genericRegistry = needsGenericRegistry ? "    \(isolation)private let _genericMockRegistry = GenericMockRegistry()\n\n" : ""
-        let staticConformance = staticMembers.isEmpty ? "" : ", StaticMock"
+        let orderedChannels = instance.filter { !$0.usesRegistry }.map { "\($0.channelName).orderedInvocations" }
+            + initializers.filter { !$0.usesRegistry }.map { "\($0.channelName).orderedInvocations" }
+            + (needsGenericRegistry ? ["_genericMockRegistry.orderedInvocations"] : [])
+        let orderedExpression = orderedChannels.isEmpty ? "[]" : orderedChannels.joined(separator: " + ")
+        let orderedInvocations = "    fileprivate \(isolation)var _mock4SwiftOrderedInvocations: [_Mock4SwiftInvocation] { \(orderedExpression) }\n\n"
+        let staticConformance = staticMembers.isEmpty ? "" : ", StaticMock, InOrderStaticMock"
         let defaultInitializer: String = if initializers.isEmpty, accessOverride != nil {
             isObjectiveC
                 ? "    \(access)override init() { super.init() }\n\n"
@@ -276,6 +284,13 @@ struct MockGenerator {
         \(staticVerifyFactories)
             }
 
+            \(access)struct StaticOrderExpect {
+                fileprivate let mock: \(mockType).Type
+                fileprivate let order: InOrder
+
+        \(staticOrderFactories)
+            }
+
             \(access)struct StaticPerform {
                 fileprivate let mock: \(mockType).Type
 
@@ -284,6 +299,9 @@ struct MockGenerator {
 
             \(access)\(isolation)static func given() -> StaticGiven { StaticGiven(mock: self) }
             \(access)\(isolation)static func perform() -> StaticPerform { StaticPerform(mock: self) }
+            \(access)\(isolation)static func orderExpectations(in order: InOrder) -> StaticOrderExpect {
+                StaticOrderExpect(mock: self, order: order)
+            }
             \(access)\(isolation)static func verification(
                 count: Count,
                 report: @escaping (VerificationResult) -> Void
@@ -296,9 +314,10 @@ struct MockGenerator {
         """
 
         let superclass = isObjectiveC ? "Foundation.NSObject, " : ""
-        return attributePrefix + access + "final \(kind) \(mockType)\(generics): \(superclass)\(conformanceType), Mock\(staticConformance)\(mockWhere) {\n"
+        return attributePrefix + access + "final \(kind) \(mockType)\(generics): \(superclass)\(conformanceType), Mock, InOrderMock\(staticConformance)\(mockWhere) {\n"
             + typealiasSection
             + genericRegistry
+            + orderedInvocations
             + channelSection
             + defaultInitializer
             + "    \(access)struct Given {\n"
@@ -309,11 +328,18 @@ struct MockGenerator {
             + "        fileprivate let count: Count\n"
             + "        fileprivate let report: (VerificationResult) -> Void\(verifySection)\n"
             + "    }\n\n"
+            + "    \(access)struct OrderExpect {\n"
+            + "        fileprivate let mock: \(mockType)\n"
+            + "        fileprivate let order: InOrder\(orderSection)\n"
+            + "    }\n\n"
             + "    \(access)struct Perform {\n"
             + "        fileprivate let mock: \(mockType)\(performSection)\n"
             + "    }\n\n"
             + "    \(access)\(isolation)func given() -> Given { Given(mock: self) }\n"
             + "    \(access)\(isolation)func perform() -> Perform { Perform(mock: self) }\n"
+            + "    \(access)\(isolation)func orderExpectations(in order: InOrder) -> OrderExpect {\n"
+            + "        OrderExpect(mock: self, order: order)\n"
+            + "    }\n"
             + "    \(access)\(isolation)func verification(\n"
             + "        count: Count,\n"
             + "        report: @escaping (VerificationResult) -> Void\n"
@@ -336,15 +362,16 @@ struct MockGenerator {
         return members.compactMap { item in
             if let variable = item.decl.as(VariableDeclSyntax.self),
                let identifier = variable.bindings.first?.pattern.as(IdentifierPatternSyntax.self)?.identifier.text,
-               identifier.hasPrefix("_mock_") || identifier == "_genericMockRegistry" {
+               identifier.hasPrefix("_mock_") || identifier == "_genericMockRegistry"
+                   || identifier == "_mock4SwiftOrderedInvocations" {
                 return item.decl
             }
             if let structure = item.decl.as(StructDeclSyntax.self),
-               ["Given", "Verify", "Perform", "StaticGiven", "StaticVerify", "StaticPerform"].contains(structure.name.text) {
+               ["Given", "Verify", "OrderExpect", "Perform", "StaticGiven", "StaticVerify", "StaticOrderExpect", "StaticPerform"].contains(structure.name.text) {
                 return item.decl
             }
             if let function = item.decl.as(FunctionDeclSyntax.self),
-               ["given", "perform", "verification", "resetMock"].contains(function.name.text) {
+               ["given", "perform", "orderExpectations", "verification", "resetMock"].contains(function.name.text) {
                 return item.decl
             }
             return nil

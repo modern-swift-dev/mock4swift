@@ -13,3 +13,16 @@ public enum TransientStubOutcome<Output: ~Copyable> {
         .throwError(error)
     }
 }
+
+public struct _Mock4SwiftTransientStubRegistration<Output: ~Copyable> {
+    private let appendOutcomes: ([TransientStubOutcome<Output>]) -> Void
+
+    public init(_ appendOutcomes: @escaping ([TransientStubOutcome<Output>]) -> Void) {
+        self.appendOutcomes = appendOutcomes
+    }
+
+    public func append(_ outcomes: [TransientStubOutcome<Output>]) {
+        precondition(!outcomes.isEmpty, "Mock stub sequence additions need at least one outcome")
+        appendOutcomes(outcomes)
+    }
+}

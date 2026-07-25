@@ -37,6 +37,15 @@ public func Verify<M: StaticMock>(
     Verify(mock, .exactly(count), sourceLocation: sourceLocation)
 }
 
+public func VerifyInOrder(
+    sourceLocation: SourceLocation = SourceLocation(fileID: #fileID, filePath: #filePath, line: #line, column: #column),
+    _ body: (InOrder) -> Void
+) {
+    let order = InOrder()
+    body(order)
+    record(order.verification(), sourceLocation: sourceLocation)
+}
+
 private func record(_ result: VerificationResult, sourceLocation: SourceLocation) {
     guard !result.success else {
         return

@@ -21,7 +21,33 @@ final class AdapterTests: XCTestCase {
         Mock4SwiftXCTest.Verify(StaticTestMock.self, 1).check()
     }
 
+    func testXCTestInOrderAdapterAcceptsSuccessfulVerification() {
+        Mock4SwiftXCTest.VerifyInOrder { order in
+            order._append(
+                source: InstanceMock(),
+                invocations: { [_Mock4SwiftInvocation(sequence: 1, member: "check")] },
+                member: "check",
+                matches: { $0 == 1 }
+            )
+        }
+    }
+
     #if canImport(Darwin)
+    func testXCTestInOrderAdapterReportsBlockLocation() {
+        let expectedLine: UInt = 4243
+        XCTExpectFailure(
+            "The in-order adapter failure is intentional",
+            strict: true,
+            failingBlock: {
+                Mock4SwiftXCTest.VerifyInOrder(file: #filePath, line: expectedLine) { _ in }
+            },
+            issueMatcher: { issue in
+                issue.compactDescription.contains("In-order verification needs at least one expected invocation")
+                    && issue.sourceCodeContext.location?.lineNumber == Int(expectedLine)
+            }
+        )
+    }
+
     func testXCTestAdapterReportsMessageAndSourceLocation() {
         let expectedLine: UInt = 4242
         XCTExpectFailure(
@@ -52,6 +78,17 @@ final class AdapterTests: XCTestCase {
     } matching: { issue in
         issue.sourceLocation == location
             && issue.comments.contains(Comment(rawValue: "adapter failure"))
+    }
+}
+
+@Test private func swiftTestingInOrderAdapterReportsBlockLocation() {
+    let location = SourceLocation(fileID: #fileID, filePath: #filePath, line: 4243, column: 8)
+
+    withKnownIssue {
+        Mock4SwiftTesting.VerifyInOrder(sourceLocation: location) { _ in }
+    } matching: { issue in
+        issue.sourceLocation == location
+            && issue.comments.contains(Comment(rawValue: "In-order verification needs at least one expected invocation"))
     }
 }
 

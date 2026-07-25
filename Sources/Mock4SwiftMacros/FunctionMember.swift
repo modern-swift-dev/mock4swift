@@ -374,13 +374,29 @@ struct FunctionMember {
             let errorOutcome = isTransient
                 ? "errors.map(TransientStubOutcome<\(outputType)>.throwing)"
                 : "errors.map(StubOutcome.throwError)"
+            let successAppend = isTransient
+                ? "registration.append([.producing { () }])"
+                : "registration.append([.returnValue(())])"
+            let sequence = """
+            _Mock4SwiftThrowingVoidSequence(
+                                    thenSucceed: { \(successAppend) },
+                                    thenThrow: { errors in registration.append(\(errorOutcome)) }
+                                )
+            """
             return method(
                 fluentSignature(arguments: matcherDeclarations, returning: handle, inferredFrom: handle),
                 body: """
                 \(success)
-                return \(handle) { errors in
-                    \(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: \(errorOutcome))
-                }
+                return \(handle)(
+                    willSucceed: {
+                        \(registryResolution)let registration = \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: \(successOutcome))
+                        return \(sequence)
+                    },
+                    willThrow: { errors in
+                        \(registryResolution)let registration = \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: \(errorOutcome))
+                        return \(sequence)
+                    }
+                )
                 """,
                 attribute: "@discardableResult"
             )
@@ -396,15 +412,16 @@ struct FunctionMember {
             }
             let errorType = typedError ?? "any Error"
             let handle = "_Mock4SwiftThrowingProduceStub<\(outputType), \(errorType)>"
+            let throwingProduceBody = "\(registryResolution)return \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: producers.map(TransientStubOutcome<\(outputType)>.producing))"
             return method(
                 fluentSignature(arguments: matcherDeclarations, returning: handle, inferredFrom: handle),
                 body: """
                 return \(handle)(
                     willProduce: { producers in
-                        \(produceBody)
+                        \(throwingProduceBody)
                     },
                     willThrow: { errors in
-                        \(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: errors.map(TransientStubOutcome<\(outputType)>.throwing))
+                        \(registryResolution)return \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: errors.map(TransientStubOutcome<\(outputType)>.throwing))
                     }
                 )
                 """
@@ -420,15 +437,16 @@ struct FunctionMember {
         }
         let errorType = typedError ?? "any Error"
         let handle = "_Mock4SwiftThrowingReturnStub<\(outputType), \(errorType)>"
+        let throwingReturnBody = "\(registryResolution)return \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: values.map(StubOutcome.returnValue))"
         return method(
             fluentSignature(arguments: matcherDeclarations, returning: handle, inferredFrom: handle),
             body: """
             return \(handle)(
                 willReturn: { values in
-                    \(returnBody)
+                    \(throwingReturnBody)
                 },
                 willThrow: { errors in
-                    \(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: errors.map(StubOutcome.throwError))
+                    \(registryResolution)return \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: errors.map(StubOutcome.throwError))
                 }
             )
             """
@@ -446,6 +464,28 @@ struct FunctionMember {
         return method(
             fluentSignature(arguments: matcherDeclarations),
             body: "\(registryResolution)report(\(channelReference).verification(matching: \(matcherClosure), count: count))"
+        )
+    }
+
+    var orderFactory: String {
+        let labels = isTransient
+            ? parameters.filter { $0.external != "_" }.map { "\($0.external): Void = ()" }.joined(separator: ", ")
+            : matcherDeclarations
+        let source = isStatic
+            ? "sourceType: mock, invocations: { StaticMockRegistry.shared.orderedInvocations(owner: mock) }"
+            : "source: mock, invocations: { mock._mock4SwiftOrderedInvocations }"
+        let matches = isTransient
+            ? "\(channelReference).matchesInvocation(sequence: sequence)"
+            : "\(channelReference).matchesInvocation(sequence: sequence, matching: \(matcherClosure))"
+        return method(
+            fluentSignature(arguments: labels),
+            body: """
+            \(registryResolution)order._append(
+                \(source),
+                member: "\(displayName)",
+                matches: { sequence in \(matches) }
+            )
+            """
         )
     }
 

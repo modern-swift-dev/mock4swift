@@ -11,6 +11,7 @@ public final class StaticMockRegistry: @unchecked Sendable {
     private struct Entry {
         let value: Any
         let reset: ([MockScope]) -> Void
+        let invocations: () -> [_Mock4SwiftInvocation]
     }
 
     private struct TransientEntry {
@@ -19,6 +20,7 @@ public final class StaticMockRegistry: @unchecked Sendable {
         let pointer: UnsafeMutableRawPointer
         let type: ObjectIdentifier
         let reset: ([MockScope]) -> Void
+        let invocations: () -> [_Mock4SwiftInvocation]
         let release: () -> Void
     }
 
@@ -68,7 +70,11 @@ public final class StaticMockRegistry: @unchecked Sendable {
                 }
                 return member
             }
-            entries[lookup] = Entry(value: candidate, reset: candidate.reset)
+            entries[lookup] = Entry(
+                value: candidate,
+                reset: candidate.reset,
+                invocations: { candidate.orderedInvocations }
+            )
             return candidate
         }
     }
@@ -109,7 +115,11 @@ public final class StaticMockRegistry: @unchecked Sendable {
             }
             let retained = Unmanaged.passRetained(candidate)
             transientEntries[lookup] = TransientEntry(
-                pointer: retained.toOpaque(), type: type, reset: candidate.reset, release: retained.release
+                pointer: retained.toOpaque(),
+                type: type,
+                reset: candidate.reset,
+                invocations: { candidate.orderedInvocations },
+                release: retained.release
             )
             return candidate
         }
@@ -148,7 +158,11 @@ public final class StaticMockRegistry: @unchecked Sendable {
                 }
                 return dispatcher
             }
-            entries[lookup] = Entry(value: candidate, reset: candidate.reset)
+            entries[lookup] = Entry(
+                value: candidate,
+                reset: candidate.reset,
+                invocations: { [] }
+            )
             return candidate
         }
     }
@@ -160,6 +174,15 @@ public final class StaticMockRegistry: @unchecked Sendable {
                 + transientEntries.compactMap { $0.key.owner == identifier ? $0.value.reset : nil }
         }
         resets.forEach { $0(scopes) }
+    }
+
+    public func orderedInvocations(owner: Any.Type) -> [_Mock4SwiftInvocation] {
+        let identifier = ObjectIdentifier(owner)
+        let snapshots = lock.withLock {
+            entries.compactMap { $0.key.owner == identifier ? $0.value.invocations : nil }
+                + transientEntries.compactMap { $0.key.owner == identifier ? $0.value.invocations : nil }
+        }
+        return snapshots.flatMap { $0() }
     }
 
     public func remove(owner: Any.Type, key: String) {

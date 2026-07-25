@@ -30,6 +30,73 @@ import Testing
     #expect(try member.invoke(()) == 3)
 }
 
+@Test func appendableStubRegistrationBuildsMixedOutcomeSequence() throws {
+    enum Failure: Error { case expected }
+    let member = MockMember<Void, Int>(name: "value")
+    let registration = member.addStub(matching: { _ in true }, outcomes: [.returning(1)])
+    registration.append([.throwing(Failure.expected), .returning(3)])
+
+    #expect(try member.invoke(()) == 1)
+    #expect(throws: Failure.expected) { try member.invoke(()) }
+    #expect(try member.invoke(()) == 3)
+    #expect(try member.invoke(()) == 3)
+}
+
+@Test func inOrderUsesStrictAdjacencyAcrossSources() throws {
+    let first = MockMember<Int, Void>(name: "first")
+    let second = MockMember<Int, Void>(name: "second")
+    first.addStub(matching: { _ in true }, outcomes: [.returning(())])
+    second.addStub(matching: { _ in true }, outcomes: [.returning(())])
+
+    try first.invoke(1)
+    try second.invoke(2)
+    try first.invoke(3)
+
+    let success = InOrder()
+    success._append(
+        source: first,
+        invocations: { first.orderedInvocations },
+        member: "first",
+        matches: { first.matchesInvocation(sequence: $0, matching: { $0 == 1 }) }
+    )
+    success._append(
+        source: second,
+        invocations: { second.orderedInvocations },
+        member: "second",
+        matches: { second.matchesInvocation(sequence: $0, matching: { $0 == 2 }) }
+    )
+    success._append(
+        source: first,
+        invocations: { first.orderedInvocations },
+        member: "first",
+        matches: { first.matchesInvocation(sequence: $0, matching: { $0 == 3 }) }
+    )
+    #expect(success.verification().success)
+
+    let failure = InOrder()
+    failure._append(
+        source: first,
+        invocations: { first.orderedInvocations },
+        member: "first",
+        matches: { first.matchesInvocation(sequence: $0, matching: { $0 == 1 }) }
+    )
+    failure._append(
+        source: first,
+        invocations: { first.orderedInvocations },
+        member: "first",
+        matches: { first.matchesInvocation(sequence: $0, matching: { $0 == 3 }) }
+    )
+    failure._append(
+        source: second,
+        invocations: { second.orderedInvocations },
+        member: "second",
+        matches: { second.matchesInvocation(sequence: $0, matching: { $0 == 2 }) }
+    )
+    let result = failure.verification()
+    #expect(!result.success)
+    #expect(result.message.contains("got second"))
+}
+
 @Test func actionAndCaptorWorkWithoutLeakingResetState() throws {
     let member = MockMember<Int, Int>()
     let captor = ArgumentCaptor<Int>()

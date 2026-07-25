@@ -6,7 +6,7 @@ public final class MockMember<Arguments, Output>: @unchecked Sendable {
         let id: UInt64
         let matches: (Arguments) -> Bool
         let specificity: Int
-        let outcomes: [StubOutcome<Output>]
+        var outcomes: [StubOutcome<Output>]
     }
 
     private struct Action {
@@ -27,7 +27,12 @@ public final class MockMember<Arguments, Output>: @unchecked Sendable {
     }
 
     private let lock = NSLock()
-    private var invocations: [Arguments] = []
+    private struct Invocation {
+        let sequence: UInt64
+        let arguments: Arguments
+    }
+
+    private var invocations: [Invocation] = []
     private var stubs: [Stub] = []
     private var actions: [Action] = []
     private var actionStubs: [ActionStub] = []
@@ -39,15 +44,25 @@ public final class MockMember<Arguments, Output>: @unchecked Sendable {
         self.name = name
     }
 
+    @discardableResult
     public func addStub(
         matching: @escaping (Arguments) -> Bool,
         specificity: Int = 0,
         outcomes: [StubOutcome<Output>]
-    ) {
+    ) -> _Mock4SwiftStubRegistration<Output> {
         precondition(!outcomes.isEmpty, "Mock stubs need at least one outcome")
-        lock.withLock {
+        let id = lock.withLock {
             nextID += 1
             stubs.append(Stub(id: nextID, matches: matching, specificity: specificity, outcomes: outcomes))
+            return nextID
+        }
+        return _Mock4SwiftStubRegistration { [self] outcomes in
+            lock.withLock {
+                guard let index = stubs.firstIndex(where: { $0.id == id }) else {
+                    preconditionFailure("Mock stub registration is no longer active")
+                }
+                stubs[index].outcomes.append(contentsOf: outcomes)
+            }
         }
     }
 
@@ -84,8 +99,9 @@ public final class MockMember<Arguments, Output>: @unchecked Sendable {
     }
 
     public func invoke(_ arguments: Arguments) throws -> Output {
+        let sequence = nextMockInvocationSequence()
         let snapshot = lock.withLock { () -> ([Action], [Stub], [ActionStub]) in
-            invocations.append(arguments)
+            invocations.append(.init(sequence: sequence, arguments: arguments))
             return (actions, stubs, actionStubs)
         }
 
@@ -119,16 +135,31 @@ public final class MockMember<Arguments, Output>: @unchecked Sendable {
     }
 
     public func record(_ arguments: Arguments) {
-        lock.withLock { invocations.append(arguments) }
+        let sequence = nextMockInvocationSequence()
+        lock.withLock { invocations.append(.init(sequence: sequence, arguments: arguments)) }
     }
 
     public func invocationCount(matching: @escaping (Arguments) -> Bool) -> Int {
         let snapshot = lock.withLock { invocations }
         return snapshot.reduce(into: 0) {
-            if matching($1) {
+            if matching($1.arguments) {
                 $0 += 1
             }
         }
+    }
+
+    public var orderedInvocations: [_Mock4SwiftInvocation] {
+        lock.withLock {
+            invocations.map { .init(sequence: $0.sequence, member: name) }
+        }
+    }
+
+    public func matchesInvocation(
+        sequence: UInt64,
+        matching: @escaping (Arguments) -> Bool
+    ) -> Bool {
+        let invocation = lock.withLock { invocations.first { $0.sequence == sequence } }
+        return invocation.map { matching($0.arguments) } ?? false
     }
 
     public func verification(matching: @escaping (Arguments) -> Bool, count: Count) -> VerificationResult {

@@ -26,12 +26,22 @@ private enum CatalogFailure: Error, Equatable {
 
     let throwing = SequencedCatalogServiceMock()
 
-    // willThrow has the same sequence behavior. Use a separate mock because a
-    // registration contains either return outcomes or throw outcomes.
+    // willThrow has the same sequence behavior.
     Given(throwing).failingItem(id: .any).willThrow(.offline, .timedOut)
     #expect(throws: CatalogFailure.offline) { try throwing.failingItem(id: 1) }
     #expect(throws: CatalogFailure.timedOut) { try throwing.failingItem(id: 1) }
     #expect(throws: CatalogFailure.timedOut) { try throwing.failingItem(id: 1) }
+
+    let mixed = SequencedCatalogServiceMock()
+
+    // thenReturn and thenThrow append typed outcomes to one registration.
+    Given(mixed).failingItem(id: .any)
+        .willReturn("cached")
+        .thenThrow(.offline)
+        .thenReturn("fresh")
+    #expect(try mixed.failingItem(id: 1) == "cached")
+    #expect(throws: CatalogFailure.offline) { try mixed.failingItem(id: 1) }
+    #expect(try mixed.failingItem(id: 1) == "fresh")
 }
 
 @Test private func performAddsSideEffectsAndSatisfiesVoidMembers() {

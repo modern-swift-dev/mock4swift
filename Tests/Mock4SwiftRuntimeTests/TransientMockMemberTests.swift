@@ -109,6 +109,17 @@ import Testing
     #expect(throws: Failure.expected) { try member.invoke(()) }
 }
 
+@Test func transientRegistrationAppendsProducedAndThrownOutcomes() throws {
+    enum Failure: Error { case expected }
+    let member = TransientMockMember<Void, Int>()
+    let registration = member.addStub(matching: { _ in true }, outcomes: [.producing { 1 }])
+    registration.append([.throwing(Failure.expected), .producing { 3 }])
+
+    #expect(try member.invoke(()) == 1)
+    #expect(throws: Failure.expected) { try member.invoke(()) }
+    #expect(try member.invoke(()) == 3)
+}
+
 @Test func transientRegistriesSeparateSpecializationsAndReset() throws {
     enum Owner {}
     let staticRegistry = StaticMockRegistry()

@@ -41,8 +41,8 @@ Mocks are strict. Mock4Swift does not invent defaults for `Void`, optionals, pro
 ## Learning order
 
 1. [`01_BasicMockingTests.swift`](Tests/01_BasicMockingTests.swift) — generate a mock, stub methods and properties, then verify calls.
-2. [`02_StubsActionsAndStrictnessTests.swift`](Tests/02_StubsActionsAndStrictnessTests.swift) — sequences, errors, actions, strict behavior, and stub priority.
-3. [`03_MatchingCaptureVerificationResetTests.swift`](Tests/03_MatchingCaptureVerificationResetTests.swift) — every matcher, argument capture, call counts, and reset scopes.
+2. [`02_StubsActionsAndStrictnessTests.swift`](Tests/02_StubsActionsAndStrictnessTests.swift) — homogeneous and mixed outcome sequences, actions, strict behavior, and stub priority.
+3. [`03_MatchingCaptureVerificationResetTests.swift`](Tests/03_MatchingCaptureVerificationResetTests.swift) — every matcher, argument capture, call counts, strict order, and reset scopes.
 4. [`04_MembersAndInitializersTests.swift`](Tests/04_MembersAndInitializersTests.swift) — static members, subscripts, initializers, overloads, variadics, and `inout`.
 5. [`05_AsyncActorsAndCallbacksTests.swift`](Tests/05_AsyncActorsAndCallbacksTests.swift) — async and typed-throwing members, actors, global actors, and callbacks.
 6. [`06_GenericsAndLanguageFeaturesTests.swift`](Tests/06_GenericsAndLanguageFeaturesTests.swift) — generics, associated types, `Self`, ownership, packs, opaque inputs, and Objective-C protocols.

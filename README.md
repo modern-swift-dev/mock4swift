@@ -53,7 +53,16 @@ Verify(weather, 1).temperature(for: .value("Toronto"))
 Verify(weather, 1).unit(set: .value("F"))
 ```
 
-Return sequences and throw sequences each consume values in order, then repeat the final outcome. When registrations overlap, the matcher with the most non-`.any` parameters wins; the newest registration wins a tie.
+Return sequences and throw sequences each consume values in order, then repeat the final outcome. Throwing members can mix typed outcomes in one registration:
+
+```swift
+Given(service).load(.any)
+    .willReturn(cached)
+    .thenThrow(.offline)
+    .thenReturn(fresh)
+```
+
+Throwing `Void` members use `willSucceed`/`thenSucceed`; transient noncopyable members use `willProduce`/`thenProduce`. When registrations overlap, the matcher with the most non-`.any` parameters wins; the newest registration wins a tie.
 
 ## Matching, capture, and reset
 
@@ -70,6 +79,18 @@ resetMock(ServiceMock.self, scopes: [.stubs, .actions])
 ```
 
 Verification counts include integer literals, `.never`, `.exactly`, `.atLeast`, `.atMost`, and `.between`.
+
+Strict in-order verification can span instance and static mocks:
+
+```swift
+VerifyInOrder { order in
+    order.expect(repository).load(.value(id))
+    order.expect(cache).save(.value(item))
+    order.expect(NotifierMock.self).notify()
+}
+```
+
+The first expectation may match anywhere in participating mocks' history. Each later expectation must match the immediate next participating invocation; calls before the first, after the last, and on mocks without expectations are ignored.
 
 ## Static members and subscripts
 

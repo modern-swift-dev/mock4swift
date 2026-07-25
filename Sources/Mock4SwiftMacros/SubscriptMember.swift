@@ -336,13 +336,29 @@ struct SubscriptMember {
                     let errorOutcome = isTransient
                         ? "errors.map(TransientStubOutcome<\(valueType)>.throwing)"
                         : "errors.map(StubOutcome.throwError)"
+                    let successAppend = isTransient
+                        ? "registration.append([.producing { () }])"
+                        : "registration.append([.returnValue(())])"
+                    let sequence = """
+                    _Mock4SwiftThrowingVoidSequence(
+                                            thenSucceed: { \(successAppend) },
+                                            thenThrow: { errors in registration.append(\(errorOutcome)) }
+                                        )
+                    """
                     return declaration(
                         "func subscriptGet\(genericClause)(\(factoryArguments(matcherDeclarations, inferredFrom: handle))) -> \(handle)\(whereClause)",
                         body: """
                         \(success)
-                        return \(handle) { errors in
-                            \(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: \(errorOutcome))
-                        }
+                        return \(handle)(
+                            willSucceed: {
+                                \(registryResolution)let registration = \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: \(successOutcome))
+                                return \(sequence)
+                            },
+                            willThrow: { errors in
+                                \(registryResolution)let registration = \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: \(errorOutcome))
+                                return \(sequence)
+                            }
+                        )
                         """,
                         attribute: "@discardableResult"
                     )
@@ -358,15 +374,16 @@ struct SubscriptMember {
                     }
                     let errorType = typedError ?? "any Error"
                     let handle = "_Mock4SwiftThrowingProduceStub<\(valueType), \(errorType)>"
+                    let throwingProduceBody = "\(registryResolution)return \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: producers.map(TransientStubOutcome<\(valueType)>.producing))"
                     return declaration(
                         "func subscriptGet\(genericClause)(\(factoryArguments(matcherDeclarations, inferredFrom: handle))) -> \(handle)\(whereClause)",
                         body: """
                         return \(handle)(
                             willProduce: { producers in
-                                \(produceBody)
+                                \(throwingProduceBody)
                             },
                             willThrow: { errors in
-                                \(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: errors.map(TransientStubOutcome<\(valueType)>.throwing))
+                                \(registryResolution)return \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: errors.map(TransientStubOutcome<\(valueType)>.throwing))
                             }
                         )
                         """
@@ -382,15 +399,16 @@ struct SubscriptMember {
                 }
                 let errorType = typedError ?? "any Error"
                 let handle = "_Mock4SwiftThrowingReturnStub<\(valueType), \(errorType)>"
+                let throwingReturnBody = "\(registryResolution)return \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: values.map(StubOutcome.returnValue))"
                 return declaration(
                     "func subscriptGet\(genericClause)(\(factoryArguments(matcherDeclarations, inferredFrom: handle))) -> \(handle)\(whereClause)",
                     body: """
                     return \(handle)(
                         willReturn: { values in
-                            \(returnBody)
+                            \(throwingReturnBody)
                         },
                         willThrow: { errors in
-                            \(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: errors.map(StubOutcome.throwError))
+                            \(registryResolution)return \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: errors.map(StubOutcome.throwError))
                         }
                     )
                     """
@@ -415,6 +433,27 @@ struct SubscriptMember {
         return declaration(
             "\(signature)(\(factoryArguments(matcherDeclarations)))\(whereClause)",
             body: "\(registryResolution)report(\(channelReference).verification(matching: \(matcherClosure), count: count))"
+        )
+    }
+
+    var orderFactory: String {
+        let signature = "func \(kind == .get ? "subscriptGet" : "subscriptSet")\(genericClause)"
+        let arguments = isTransient ? "" : matcherDeclarations
+        let source = isStatic
+            ? "sourceType: mock, invocations: { StaticMockRegistry.shared.orderedInvocations(owner: mock) }"
+            : "source: mock, invocations: { mock._mock4SwiftOrderedInvocations }"
+        let matches = isTransient
+            ? "\(channelReference).matchesInvocation(sequence: sequence)"
+            : "\(channelReference).matchesInvocation(sequence: sequence, matching: \(matcherClosure))"
+        return declaration(
+            "\(signature)(\(factoryArguments(arguments)))\(whereClause)",
+            body: """
+            \(registryResolution)order._append(
+                \(source),
+                member: "\(displayName)",
+                matches: { sequence in \(matches) }
+            )
+            """
         )
     }
 

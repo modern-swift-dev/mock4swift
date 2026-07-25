@@ -198,6 +198,53 @@ struct InitializerMember {
         """
     }
 
+    var orderFactory: String {
+        let availabilityPrefix = availability.isEmpty ? "" : availability.split(separator: "\n").map { "        " + $0 }.joined(separator: "\n") + "\n"
+        if isTransient {
+            let explicitTypeTokens = declaration.genericParameterClause?.parameters.map { parameter -> String in
+                if parameter.specifier != nil {
+                    return "_ types: repeat (each \(parameter.name.text)).Type"
+                }
+                let label = parameter.name.text.prefix(1).lowercased() + String(parameter.name.text.dropFirst()) + "Type"
+                return "\(label) _: \(parameter.name.text).Type"
+            } ?? []
+            let opaqueTypeTokens = declaration.signature.parameterClause.parameters.enumerated().compactMap { position, _ in
+                opaqueParameter(at: position).map { "\(parameters[position].local)Type _: \($0.name).Type" }
+            }
+            let typeTokens = (explicitTypeTokens + opaqueTypeTokens).joined(separator: ", ")
+            return availabilityPrefix + """
+                    \(access)\(factoryIsolation)func initializer\(genericClause)(\(typeTokens))\(declaration.genericWhereClause
+                .map { " " + rewriteType(
+                    $0.trimmedDescription,
+                    replacements: replacements,
+                    mockType: mockType
+                ) } ?? "") {
+                        \(registryResolution)order._append(
+                            source: mock,
+                            invocations: { mock._mock4SwiftOrderedInvocations },
+                            member: "\(displayName)",
+                            matches: { sequence in \(channelReference).matchesInvocation(sequence: sequence) }
+                        )
+                    }
+            """
+        }
+        return availabilityPrefix + """
+                \(access)\(factoryIsolation)func initializer\(genericClause)(\(matcherDeclarations))\(declaration.genericWhereClause
+            .map { " " + rewriteType(
+                $0.trimmedDescription,
+                replacements: replacements,
+                mockType: mockType
+            ) } ?? "") {
+                    \(registryResolution)order._append(
+                        source: mock,
+                        invocations: { mock._mock4SwiftOrderedInvocations },
+                        member: "\(displayName)",
+                        matches: { sequence in \(channelReference).matchesInvocation(sequence: sequence, matching: \(matcherClosure)) }
+                    )
+                }
+        """
+    }
+
     var genericClause: String {
         let explicit = declaration.genericParameterClause?.parameters.map(\.trimmedDescription) ?? []
         let opaque = opaqueParameters.map { "\($0.name): \($0.constraint)" }

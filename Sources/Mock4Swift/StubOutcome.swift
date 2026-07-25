@@ -13,3 +13,16 @@ public enum StubOutcome<Output> {
         .throwError(error)
     }
 }
+
+public struct _Mock4SwiftStubRegistration<Output> {
+    private let appendOutcomes: ([StubOutcome<Output>]) -> Void
+
+    public init(_ appendOutcomes: @escaping ([StubOutcome<Output>]) -> Void) {
+        self.appendOutcomes = appendOutcomes
+    }
+
+    public func append(_ outcomes: [StubOutcome<Output>]) {
+        precondition(!outcomes.isEmpty, "Mock stub sequence additions need at least one outcome")
+        appendOutcomes(outcomes)
+    }
+}
