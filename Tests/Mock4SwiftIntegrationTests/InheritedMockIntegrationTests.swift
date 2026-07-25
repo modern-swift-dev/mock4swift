@@ -1,21 +1,27 @@
+import ExternalChildProtocols
 import Mock4Swift
 import Mock4SwiftInheritanceFixture
 import Mock4SwiftTesting
 import Testing
+
+/**
+ import SwiftSyntax
+ */
+private let ignoredImportText = """
+import SwiftParser
+"""
 
 public protocol InheritedParent {
     func inherited(_ value: Int) -> String
     var flag: Bool { get set }
 }
 
-@Mockable
-public protocol InheritedChild: InheritedParent {
+@Mockable public protocol InheritedChild: InheritedParent {
     init(seed: Int)
     func own() -> Int
 }
 
-@Test
-private func inheritedMockUsesGeneratedRuntimeSupport() {
+@Test private func inheritedMockUsesGeneratedRuntimeSupport() {
     let mock = InheritedChildMock(seed: 3)
 
     Given(mock, .inherited(.value(1), willReturn: "one"))
@@ -35,13 +41,11 @@ private func inheritedMockUsesGeneratedRuntimeSupport() {
     Verify(mock, 1, .initializer(seed: .value(3)))
 }
 
-@Mockable
-protocol CrossTargetChild: CrossTargetParent {
+@Mockable protocol CrossTargetChild: CrossTargetParent {
     func childValue() -> Int
 }
 
-@Test
-private func samePackageCrossTargetParentIsResolved() {
+@Test private func samePackageCrossTargetParentIsResolved() {
     let mock = CrossTargetChildMock()
     Given(mock, .parentValue(.value(1), willReturn: "one"))
     Given(mock, .childValue(willReturn: 2))
@@ -52,8 +56,7 @@ private func samePackageCrossTargetParentIsResolved() {
     Verify(mock, 1, .childValue())
 }
 
-@Test
-private func inheritedMockCanBeGeneratedInALibraryTarget() {
+@Test private func inheritedMockCanBeGeneratedInALibraryTarget() {
     let mock = LibraryTargetChildMock()
     Given(mock, .parentValue(.value(1), willReturn: "one"))
     Given(mock, .childValue(willReturn: 2))
@@ -62,16 +65,58 @@ private func inheritedMockCanBeGeneratedInALibraryTarget() {
     #expect(mock.childValue() == 2)
 }
 
+@Mockable protocol ExternalPackageChild: ExternalProtocolComposition {
+    func ownValue() -> Int
+}
+
+@Test private func externalPackageCompositionUsesGeneratedRuntimeSupport() {
+    let mock = ExternalPackageChildMock()
+    Given(mock, .baseValue(.value(1), willReturn: "one"))
+    Given(mock, .enabled(willReturn: true))
+    Given(mock, .enabled(set: .any))
+    Given(mock, .subscriptGet(.value("key"), willReturn: 2))
+    Given(mock, .subscriptSet(.value("key"), value: .any))
+    Given(mock, .name(willReturn: "external"))
+    Given(mock, .ownValue(willReturn: 3))
+
+    #expect(mock.baseValue(1) == "one")
+    #expect(mock.enabled)
+    mock.enabled = false
+    #expect(mock["key"] == 2)
+    mock["key"] = 4
+    #expect(mock.name() == "external")
+    #expect(mock.ownValue() == 3)
+
+    Verify(mock, 1, .baseValue(.value(1)))
+    Verify(mock, 1, .enabled())
+    Verify(mock, 1, .enabled(set: .value(false)))
+    Verify(mock, 1, .subscriptGet(.value("key")))
+    Verify(mock, 1, .subscriptSet(.value("key"), value: .value(4)))
+    Verify(mock, 1, .name())
+    Verify(mock, 1, .ownValue())
+}
+
+@Mockable protocol QualifiedExternalPackageChild: ExternalChildProtocols.ExternalIndexedProtocol {}
+
+@Test private func moduleQualifiedExternalParentIsResolved() {
+    let mock = QualifiedExternalPackageChildMock()
+    Given(mock, .baseValue(.value(2), willReturn: "two"))
+    Given(mock, .enabled(willReturn: false))
+
+    #expect(mock.baseValue(2) == "two")
+    #expect(!mock.enabled)
+    Verify(mock, 1, .baseValue(.value(2)))
+    Verify(mock, 1, .enabled())
+}
+
 protocol AssociatedParent {
     associatedtype Value
     func inheritedValue() -> Value
 }
 
-@Mockable
-protocol AssociatedChild: AssociatedParent {}
+@Mockable protocol AssociatedChild: AssociatedParent {}
 
-@Test
-private func inheritedAssociatedTypeBecomesMockGenericParameter() {
+@Test private func inheritedAssociatedTypeBecomesMockGenericParameter() {
     let mock = AssociatedChildMock<String>()
     Given(mock, .inheritedValue(willReturn: "value"))
 
@@ -86,11 +131,9 @@ protocol DiamondBase {
 protocol DiamondLeft: DiamondBase {}
 protocol DiamondRight: DiamondBase {}
 
-@Mockable
-protocol DiamondChild: DiamondLeft, DiamondRight {}
+@Mockable protocol DiamondChild: DiamondLeft, DiamondRight {}
 
-@Test
-private func diamondInheritanceGeneratesOneWitness() {
+@Test private func diamondInheritanceGeneratesOneWitness() {
     let mock = DiamondChildMock()
     Given(mock, .baseValue(willReturn: 3))
 
@@ -98,17 +141,14 @@ private func diamondInheritanceGeneratesOneWitness() {
     Verify(mock, 1, .baseValue())
 }
 
-@MainActor
-protocol MainActorParent {
+@MainActor protocol MainActorParent {
     func value() -> Int
 }
 
 @Mockable
-@MainActor
-protocol MainActorInherited: MainActorParent {}
+@MainActor protocol MainActorInherited: MainActorParent {}
 
-@Test @MainActor
-private func globalActorInheritedMockKeepsConfigurationNonisolated() {
+@Test @MainActor private func globalActorInheritedMockKeepsConfigurationNonisolated() {
     let mock = MainActorInheritedMock()
     Given(mock, .value(willReturn: 4))
     #expect(mock.value() == 4)
@@ -119,11 +159,9 @@ protocol ActorParent: Actor {
     func value() -> Int
 }
 
-@Mockable
-protocol ActorInherited: ActorParent {}
+@Mockable protocol ActorInherited: ActorParent {}
 
-@Test
-private func actorInheritedMockKeepsConfigurationNonisolated() async {
+@Test private func actorInheritedMockKeepsConfigurationNonisolated() async {
     let mock = ActorInheritedMock()
     Given(mock, .value(willReturn: 5))
     #expect(await mock.value() == 5)
@@ -140,11 +178,9 @@ protocol NamedParent {
 
 typealias CombinedParents = IndexedParent & NamedParent
 
-@Mockable
-protocol CombinedChild: CombinedParents {}
+@Mockable protocol CombinedChild: CombinedParents {}
 
-@Test
-private func compositionAliasAndSubscriptsUseGeneratedSupport() {
+@Test private func compositionAliasAndSubscriptsUseGeneratedSupport() {
     let mock = CombinedChildMock()
     Given(mock, .subscriptGet(.value("key"), willReturn: 1))
     Given(mock, .subscriptSet(.value("key"), value: .value(2)))
@@ -165,11 +201,9 @@ protocol EffectfulIndexedParent {
     subscript(_ key: Int) -> Int { get async throws(InheritedAccessorError) }
 }
 
-@Mockable
-protocol EffectfulIndexedChild: EffectfulIndexedParent {}
+@Mockable protocol EffectfulIndexedChild: EffectfulIndexedParent {}
 
-@Test
-private func effectfulSubscriptUsesGeneratedSupport() async throws {
+@Test private func effectfulSubscriptUsesGeneratedSupport() async throws {
     let mock = EffectfulIndexedChildMock()
     Given(mock, .subscriptGet(.value(1), willReturn: 7))
 

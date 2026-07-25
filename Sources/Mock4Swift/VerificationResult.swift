@@ -10,5 +10,7 @@ public struct VerificationResult: Sendable, Equatable, CustomStringConvertible {
         self.message = message
     }
 
-    public var description: String { message }
+    public var description: String {
+        message
+    }
 }

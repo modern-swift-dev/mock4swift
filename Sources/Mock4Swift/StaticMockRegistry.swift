@@ -7,10 +7,12 @@ public final class StaticMockRegistry: @unchecked Sendable {
         let key: String
         let types: [ObjectIdentifier]
     }
+
     private struct Entry {
         let value: Any
         let reset: ([MockScope]) -> Void
     }
+
     private struct TransientEntry {
         // `Any`/`AnyObject` erasure of a class specialized with noncopyable
         // arguments requires a newer runtime than the package's iOS 17 floor.

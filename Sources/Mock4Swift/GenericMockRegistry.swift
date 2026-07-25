@@ -6,10 +6,12 @@ public final class GenericMockRegistry: @unchecked Sendable {
         let key: String
         let types: [ObjectIdentifier]
     }
+
     private struct Entry {
         let value: Any
         let reset: ([MockScope]) -> Void
     }
+
     private struct TransientEntry {
         // See StaticMockRegistry.TransientEntry for why this uses opaque ARC
         // ownership instead of `AnyObject` storage.

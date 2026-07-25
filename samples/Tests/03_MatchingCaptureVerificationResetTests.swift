@@ -8,15 +8,13 @@ private struct ExternalID {
 
 private final class ReferenceItem {}
 
-@Mockable
-private protocol MatchingService {
+@Mockable private protocol MatchingService {
     func identify(_ id: ExternalID) throws -> String
     func owns(_ item: ReferenceItem) -> Bool
     func record(_ value: Int)
 }
 
-@Test
-private func everyParameterMatcherHasAFocusedUse() throws {
+@Test private func everyParameterMatcherHasAFocusedUse() throws {
     let service = MatchingServiceMock()
     let expectedReference = ReferenceItem()
 
@@ -44,8 +42,7 @@ private func everyParameterMatcherHasAFocusedUse() throws {
     #expect(!service.owns(ReferenceItem()))
 }
 
-@Test
-private func captorsAndEveryVerificationCountForm() {
+@Test private func captorsAndEveryVerificationCountForm() {
     let service = MatchingServiceMock()
     let values = ArgumentCaptor<Int>()
     Given(service, .record(.any))
@@ -63,15 +60,14 @@ private func captorsAndEveryVerificationCountForm() {
     Verify(service, .atLeast(1), .record(.any))
     Verify(service, .atMost(2), .record(.any))
     Verify(service, .between(1, 3), .record(.any))
-    Verify(service, .between(1...2), .record(.any))
+    Verify(service, .between(1 ... 2), .record(.any))
     Verify(service, .never, .record(.value(99)))
 
     values.reset()
     #expect(values.values.isEmpty)
 }
 
-@Test
-private func resetScopesClearOnlyRequestedState() throws {
+@Test private func resetScopesClearOnlyRequestedState() throws {
     let service = MatchingServiceMock()
     var actions = 0
 

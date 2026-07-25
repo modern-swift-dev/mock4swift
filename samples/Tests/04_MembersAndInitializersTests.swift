@@ -2,8 +2,7 @@ import Mock4Swift
 import Mock4SwiftTesting
 import Testing
 
-@Mockable
-private protocol AdvancedMembersService {
+@Mockable private protocol AdvancedMembersService {
     init(seed: Int)
 
     static var sharedValue: Int { get set }
@@ -12,8 +11,7 @@ private protocol AdvancedMembersService {
     subscript(_ key: String) -> Int { get set }
 }
 
-@Mockable
-private protocol RepositoryService {
+@Mockable private protocol RepositoryService {
     associatedtype Item: Equatable
 
     func load() -> Item
@@ -23,8 +21,7 @@ private protocol RepositoryService {
     func mutate(_ value: inout Int)
 }
 
-@Test
-private func staticMembersSubscriptsAndInitializersUseTypedFactories() {
+@Test private func staticMembersSubscriptsAndInitializersUseTypedFactories() {
     // Required initializers are the only members that do not need a stub. They
     // construct the mock and record their arguments for later verification.
     let service = AdvancedMembersServiceMock(seed: 1)
@@ -53,8 +50,7 @@ private func staticMembersSubscriptsAndInitializersUseTypedFactories() {
     Verify(service, 1, .initializer(seed: .value(1)))
 }
 
-@Test
-private func associatedTypesOverloadsVariadicsAndInoutStayTyped() {
+@Test private func associatedTypesOverloadsVariadicsAndInoutStayTyped() {
     // Associated types become generic arguments on the generated mock.
     let repository = RepositoryServiceMock<String>()
     var mutableValue = 5

@@ -89,7 +89,7 @@ import Testing
     #expect(member.verification(matching: { _ in true }, count: .atLeast(1)).success)
     #expect(member.verification(matching: { _ in true }, count: .atMost(2)).success)
     #expect(member.verification(matching: { _ in true }, count: .between(1, 3)).success)
-    #expect(member.verification(matching: { _ in true }, count: .between(1...2)).success)
+    #expect(member.verification(matching: { _ in true }, count: .between(1 ... 2)).success)
     #expect(!member.verification(matching: { _ in true }, count: .never).success)
 }
 
@@ -154,7 +154,7 @@ import Testing
     member.addStub(matching: { _ in true }, outcomes: [.returning(1)])
 
     try await withThrowingTaskGroup(of: Int.self) { group in
-        for value in 0..<100 {
+        for value in 0 ..< 100 {
             group.addTask { try member.invoke(value) }
         }
         for try await result in group {
@@ -169,14 +169,14 @@ import Testing
     let member = MockMember<Int, Int>()
 
     await withTaskGroup(of: Void.self) { group in
-        for value in 0..<100 {
+        for value in 0 ..< 100 {
             group.addTask {
                 member.addStub(matching: { $0 == value }, specificity: 1, outcomes: [.returning(value)])
             }
         }
     }
 
-    for value in 0..<100 {
+    for value in 0 ..< 100 {
         #expect(try member.invoke(value) == value)
     }
 }

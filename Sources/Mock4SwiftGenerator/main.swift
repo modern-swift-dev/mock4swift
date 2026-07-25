@@ -18,35 +18,47 @@ private struct Arguments {
 
         while index < values.count {
             switch values[index] {
-            case "--output":
-                index += 1
-                guard index < values.count else { throw GeneratorError.usage("missing value after --output") }
-                output = URL(fileURLWithPath: values[index])
-                index += 1
-            case "--target-module":
-                index += 1
-                guard index < values.count else { throw GeneratorError.usage("missing value after --target-module") }
-                targetModule = values[index]
-                index += 1
-            case "--module":
-                index += 1
-                guard index < values.count else { throw GeneratorError.usage("missing module name after --module") }
-                let name = values[index]
-                index += 1
-                var paths: [String] = []
-                while index < values.count, !values[index].hasPrefix("--") {
-                    paths.append(values[index])
+                case "--output":
                     index += 1
-                }
-                guard !paths.isEmpty else { throw GeneratorError.usage("--module \(name) has no source files") }
-                modules.append(ModuleInput(name: name, paths: paths))
-            default:
-                throw GeneratorError.usage("unknown argument '\(values[index])'")
+                    guard index < values.count else {
+                        throw GeneratorError.usage("missing value after --output")
+                    }
+                    output = URL(fileURLWithPath: values[index])
+                    index += 1
+                case "--target-module":
+                    index += 1
+                    guard index < values.count else {
+                        throw GeneratorError.usage("missing value after --target-module")
+                    }
+                    targetModule = values[index]
+                    index += 1
+                case "--module":
+                    index += 1
+                    guard index < values.count else {
+                        throw GeneratorError.usage("missing module name after --module")
+                    }
+                    let name = values[index]
+                    index += 1
+                    var paths: [String] = []
+                    while index < values.count, !values[index].hasPrefix("--") {
+                        paths.append(values[index])
+                        index += 1
+                    }
+                    guard !paths.isEmpty else {
+                        throw GeneratorError.usage("--module \(name) has no source files")
+                    }
+                    modules.append(ModuleInput(name: name, paths: paths))
+                default:
+                    throw GeneratorError.usage("unknown argument '\(values[index])'")
             }
         }
 
-        guard let output else { throw GeneratorError.usage("missing --output") }
-        guard let targetModule else { throw GeneratorError.usage("missing --target-module") }
+        guard let output else {
+            throw GeneratorError.usage("missing --output")
+        }
+        guard let targetModule else {
+            throw GeneratorError.usage("missing --target-module")
+        }
         guard modules.contains(where: { $0.name == targetModule }) else {
             throw GeneratorError.usage("target module '\(targetModule)' is not present in --module inputs")
         }
@@ -66,7 +78,9 @@ private struct DeclarationID: Hashable, CustomStringConvertible {
     let module: String
     let name: String
 
-    var description: String { "\(module).\(name)" }
+    var description: String {
+        "\(module).\(name)"
+    }
 }
 
 private struct SourceUnit {
@@ -76,7 +90,7 @@ private struct SourceUnit {
     let importedModules: Set<String>
     let imports: [ImportDeclSyntax]
 
-    func location<Node: SyntaxProtocol>(of node: Node) -> SourceDiagnostic.Location {
+    func location(of node: some SyntaxProtocol) -> SourceDiagnostic.Location {
         let converter = SourceLocationConverter(fileName: path, tree: tree)
         let location = converter.location(for: node.positionAfterSkippingLeadingTrivia)
         return .init(path: path, line: location.line, column: location.column)
@@ -108,8 +122,12 @@ private enum AccessLevel: String {
                 "@Mockable inheritance generation requires an internal, package, or public top-level protocol"
             )
         }
-        if modifiers.contains("public") { return .public }
-        if modifiers.contains("package") { return .package }
+        if modifiers.contains("public") {
+            return .public
+        }
+        if modifiers.contains("package") {
+            return .package
+        }
         return .internalAccess
     }
 }
@@ -153,13 +171,13 @@ private enum GeneratorError: Error {
 private final class Scanner {
     private let targetModule: String
     private let units: [SourceUnit]
-    private let localModules: Set<String>
+    private let availableSourceModules: Set<String>
     private var protocols: [DeclarationID: [ProtocolRecord]] = [:]
     private var aliases: [DeclarationID: [AliasRecord]] = [:]
 
     init(arguments: Arguments) throws {
         targetModule = arguments.targetModule
-        localModules = Set(arguments.modules.map(\.name))
+        availableSourceModules = Set(arguments.modules.map(\.name))
 
         var parsed: [SourceUnit] = []
         for module in arguments.modules.sorted(by: { $0.name < $1.name }) {
@@ -212,14 +230,16 @@ private final class Scanner {
 
     func render() throws -> String {
         let roots = protocols.values
-            .flatMap { $0 }
+            .flatMap(\.self)
             .filter {
                 $0.id.module == targetModule
                     && hasAttribute(named: "Mockable", in: $0.declaration.attributes)
                     && hasCustomInheritance($0.declaration)
             }
             .sorted {
-                if $0.id.name != $1.id.name { return $0.id.name < $1.id.name }
+                if $0.id.name != $1.id.name {
+                    return $0.id.name < $1.id.name
+                }
                 return units[$0.unit].path < units[$1.unit].path
             }
 
@@ -240,7 +260,9 @@ private final class Scanner {
                     importTexts.insert("import \(unit.module)")
                 }
                 for declaration in unit.imports {
-                    guard declaration.path.first?.name.text != targetModule else { continue }
+                    guard declaration.path.first?.name.text != targetModule else {
+                        continue
+                    }
                     importTexts.insert(declaration.trimmedDescription)
                 }
             }
@@ -271,15 +293,17 @@ private final class Scanner {
                 )
             }
             switch try resolve(reference, from: unit) {
-            case .protocolDecl(let id):
-                try visitProtocol(try uniqueProtocol(id, referencedFrom: unit))
-            case .alias(let id):
-                try visitAlias(try uniqueAlias(id, referencedFrom: unit))
+                case let .protocolDecl(id):
+                    try visitProtocol(try uniqueProtocol(id, referencedFrom: unit))
+                case let .alias(id):
+                    try visitAlias(try uniqueAlias(id, referencedFrom: unit))
             }
         }
 
         func visitProtocol(_ record: ProtocolRecord) throws {
-            guard !visitedProtocols.contains(record.id) else { return }
+            guard !visitedProtocols.contains(record.id) else {
+                return
+            }
             let node = ResolvedDeclaration.protocolDecl(record.id)
             guard visiting.insert(node).inserted else {
                 throw sourceError(at: record, "protocol inheritance cycle involving '\(record.id)'")
@@ -296,7 +320,9 @@ private final class Scanner {
         }
 
         func visitAlias(_ record: AliasRecord) throws {
-            guard !visitedAliases.contains(record.id) else { return }
+            guard !visitedAliases.contains(record.id) else {
+                return
+            }
             if record.declaration.genericParameterClause != nil || record.declaration.genericWhereClause != nil {
                 throw sourceError(at: record, "generic protocol-composition alias '\(record.id)' is not supported")
             }
@@ -325,17 +351,25 @@ private final class Scanner {
         for record in orderedProtocols {
             for member in record.declaration.memberBlock.members {
                 let key = memberKey(member.decl)
-                if membersByKey[key] == nil { memberOrder.append(key) }
+                if membersByKey[key] == nil {
+                    memberOrder.append(key)
+                }
                 membersByKey[key] = member
             }
             for element in record.declaration.attributes {
-                guard let attribute = element.as(AttributeSyntax.self), isRelevant(attribute) else { continue }
+                guard let attribute = element.as(AttributeSyntax.self), isRelevant(attribute) else {
+                    continue
+                }
                 let text = attribute.trimmedDescription
-                if seenAttributes.insert(text).inserted { attributes.append(attribute) }
+                if seenAttributes.insert(text).inserted {
+                    attributes.append(attribute)
+                }
             }
             for requirement in record.declaration.genericWhereClause?.requirements ?? [] {
                 let text = requirement.trimmedDescription
-                if seenRequirements.insert(text).inserted { whereRequirements.append(text) }
+                if seenRequirements.insert(text).inserted {
+                    whereRequirements.append(text)
+                }
             }
         }
 
@@ -351,10 +385,10 @@ private final class Scanner {
 
     private func resolve(_ reference: TypeReference, from unit: Int) throws -> ResolvedDeclaration {
         if let module = reference.module {
-            guard localModules.contains(module) else {
+            guard availableSourceModules.contains(module) else {
                 throw GeneratorError.source(
                     units[unit].location(of: units[unit].tree),
-                    "inherited protocol '\(module).\(reference.name)' is outside this Swift package"
+                    "inherited protocol '\(module).\(reference.name)' has no readable source available; binary, SDK, and precompiled modules are unsupported"
                 )
             }
             return try resolvedDeclaration(.init(module: module, name: reference.name), referencedFrom: unit)
@@ -366,14 +400,14 @@ private final class Scanner {
         }
 
         let candidates = units[unit].importedModules
-            .filter(localModules.contains)
+            .filter(availableSourceModules.contains)
             .map { DeclarationID(module: $0, name: reference.name) }
             .filter { protocols[$0] != nil || aliases[$0] != nil }
             .sorted { $0.description < $1.description }
 
         guard candidates.count == 1, let candidate = candidates.first else {
             let detail = candidates.isEmpty
-                ? "cannot resolve inherited protocol or composition alias '\(reference.name)' in this Swift package"
+                ? "cannot resolve inherited protocol or composition alias '\(reference.name)' in target module '\(targetModule)' or its reachable SwiftPM source dependencies; binary, SDK, and precompiled modules are unsupported"
                 : "ambiguous inherited name '\(reference.name)': \(candidates.map(\.description).joined(separator: ", "))"
             throw GeneratorError.source(units[unit].location(of: units[unit].tree), detail)
         }
@@ -492,7 +526,9 @@ private func hasCustomInheritance(_ declaration: ProtocolDeclSyntax) -> Bool {
 
 private func hasAttribute(named expected: String, in attributes: AttributeListSyntax) -> Bool {
     attributes.contains {
-        guard let attribute = $0.as(AttributeSyntax.self) else { return false }
+        guard let attribute = $0.as(AttributeSyntax.self) else {
+            return false
+        }
         return simpleName(attribute.attributeName.trimmedDescription) == expected
     }
 }
@@ -583,10 +619,10 @@ do {
     let arguments = try Arguments(Array(CommandLine.arguments.dropFirst()))
     let scanner = try Scanner(arguments: arguments)
     try write(scanner.render(), to: arguments.output)
-} catch GeneratorError.usage(let message) {
+} catch let GeneratorError.usage(message) {
     FileHandle.standardError.write(Data("Mock4SwiftGenerator: \(message)\n".utf8))
     exit(2)
-} catch GeneratorError.source(let location, let message) {
+} catch let GeneratorError.source(location, message) {
     FileHandle.standardError.write(
         Data("\(location.path):\(location.line):\(location.column): error: \(message)\n".utf8)
     )

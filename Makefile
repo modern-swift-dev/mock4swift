@@ -18,10 +18,10 @@ format:
 test-linux:
 	docker run \
 		--rm \
-		-v "$(PWD):$(PWD)" \
-		-w "$(PWD)" \
+		-v "$(PWD):/workspace" \
+		-w /workspace \
 		swift:6.3 \
-		bash -c 'swift test'
+		bash -c 'swift test --scratch-path .build/linux'
 
 test-macos:
 	set -o pipefail && \
@@ -38,6 +38,8 @@ test-ios:
 test-swift:
 	set -o pipefail && \
 	swift test | mint run --no-install cpisciotta/xcbeautify -q
+
+test: test-swift
 
 test-tvos:
 	set -o pipefail && \

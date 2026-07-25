@@ -6,8 +6,7 @@ import Testing
 import Foundation
 #endif
 
-@Mockable
-private protocol WeatherService {
+@Mockable private protocol WeatherService {
     var unit: String { get set }
 
     func temperature(for city: String) async throws -> Double
@@ -15,8 +14,7 @@ private protocol WeatherService {
     func greeting() -> String
 }
 
-@Mockable
-private protocol AdvancedService {
+@Mockable private protocol AdvancedService {
     init(seed: Int)
 
     static var sharedValue: Int { get set }
@@ -25,8 +23,7 @@ private protocol AdvancedService {
     subscript(_ key: String) -> Int { get set }
 }
 
-@Mockable
-private protocol Repository {
+@Mockable private protocol Repository {
     associatedtype Item: Equatable
 
     func load() -> Item
@@ -36,8 +33,7 @@ private protocol Repository {
     func mutate(_ value: inout Int)
 }
 
-@Mockable
-private protocol Worker: Actor {
+@Mockable private protocol Worker: Actor {
     func work(_ value: Int) -> String
 }
 
@@ -45,50 +41,42 @@ private enum LoadFailure: Error, Equatable {
     case unavailable
 }
 
-@Mockable
-private protocol TypedThrower {
+@Mockable private protocol TypedThrower {
     func load(_ key: String) throws(LoadFailure) -> Int
 }
 
-@Mockable
-private protocol GenericService {
+@Mockable private protocol GenericService {
     func echo<Value: Equatable>(_ value: Value) -> Value
     func run<Value>(_ body: () throws -> Value) rethrows -> Value
 }
 
-@Mockable
-private protocol AssociatedOnly<Element> {
+@Mockable private protocol AssociatedOnly<Element> {
     associatedtype Element: Sendable where Element: Equatable
 }
 
-@Mockable
-private protocol StaticGenericService {
+@Mockable private protocol StaticGenericService {
     static func identity<Value: Equatable>(_ value: Value) -> Value
 }
 
 @MainActor
-@Mockable
-private protocol MainActorService {
+@Mockable private protocol MainActorService {
     static var enabled: Bool { get }
     func title() -> String
 }
 
-@Mockable
-private protocol SelfService: AnyObject {
+@Mockable private protocol SelfService: AnyObject {
     static func make() -> Self
     func clone() -> Self
     func isSame(as other: Self) -> Bool
 }
 
-@Mockable
-private protocol OwnershipService {
+@Mockable private protocol OwnershipService {
     func borrow(_ value: borrowing String) -> Int
     func consume(_ value: consuming String) -> Int
     func send(_ value: sending String) -> Int
 }
 
-@Mockable
-private protocol ProtocolWhereService<Element> where Element: Equatable {
+@Mockable private protocol ProtocolWhereService<Element> where Element: Equatable {
     associatedtype Element
     mutating func update() -> Int
 }
@@ -97,41 +85,30 @@ private struct NoncopyableToken: ~Copyable {
     let raw: Int
 }
 
-@Mockable
-private protocol NoncopyableService: ~Copyable {
-    @MockNoncopyable
-    var token: NoncopyableToken { get set }
+@Mockable private protocol NoncopyableService: ~Copyable {
+    @MockNoncopyable var token: NoncopyableToken { get set }
 
-    @MockNoncopyable
-    subscript(_ key: Int) -> NoncopyableToken { get set }
+    @MockNoncopyable subscript(_ key: Int) -> NoncopyableToken { get set }
 
-    @MockNoncopyable
-    func inspect(_ token: borrowing NoncopyableToken) -> Int
+    @MockNoncopyable func inspect(_ token: borrowing NoncopyableToken) -> Int
 
-    @MockNoncopyable
-    func consume(_ prefix: Int, token: consuming NoncopyableToken) -> Int
+    @MockNoncopyable func consume(_ prefix: Int, token: consuming NoncopyableToken) -> Int
 
-    @MockNoncopyable
-    func make() -> NoncopyableToken
+    @MockNoncopyable func make() -> NoncopyableToken
 }
 
-@Mockable
-private protocol NoncopyableInitializerService: ~Copyable {
-    @MockNoncopyable
-    init(_ token: consuming NoncopyableToken)
+@Mockable private protocol NoncopyableInitializerService: ~Copyable {
+    @MockNoncopyable init(_ token: consuming NoncopyableToken)
 }
 
-@Mockable
-private protocol GenericNoncopyableInitializerService: ~Copyable {
-    @MockNoncopyable
-    init<Value>(_ value: consuming Value) where Value: ~Copyable
+@Mockable private protocol GenericNoncopyableInitializerService: ~Copyable {
+    @MockNoncopyable init(_ value: consuming some ~Copyable)
 }
 
-@Mockable
-private protocol EffectfulAccessorService {
+@Mockable private protocol EffectfulAccessorService {
     var current: Int { get async throws(LoadFailure) }
     static subscript(_ key: Int) -> String { get }
-    subscript<Key: Hashable>(_ key: Key) -> String { get async throws }
+    subscript(_ key: some Hashable) -> String { get async throws }
 }
 
 private protocol IdentifiedValue {
@@ -142,16 +119,14 @@ private struct Identifier: IdentifiedValue, Equatable {
     let id: Int
 }
 
-@Mockable
-private protocol PackAndOpaqueService {
+@Mockable private protocol PackAndOpaqueService {
     init<each Seed>(_ seed: repeat each Seed)
     func describe<each Element>(_ values: repeat each Element) -> Int
     func identifier(_ value: some IdentifiedValue) -> Int
     subscript<each Element>(_ values: repeat each Element) -> Int { get }
 }
 
-@Mockable
-private protocol CallbackService {
+@Mockable private protocol CallbackService {
     func load(_ key: Int, completion: (Int) -> Void)
     func transform<Value: Equatable>(_ value: Value, completion: (Value) -> Void)
     static func load(_ key: String, completion: (String) -> Void)
@@ -160,17 +135,14 @@ private protocol CallbackService {
 
 #if canImport(ObjectiveC)
 @objc
-@Mockable
-private protocol ObjectiveCService: NSObjectProtocol {
-    @objc(fetchValue:)
-    optional func fetch(_ value: Int) -> String?
+@Mockable private protocol ObjectiveCService: NSObjectProtocol {
+    @objc(fetchValue:) optional func fetch(_ value: Int) -> String?
 
     @objc optional var title: String? { get }
 }
 #endif
 
-@Test
-private func generatedMockSupportsMethodsPropertiesAndTypedDSL() async throws {
+@Test private func generatedMockSupportsMethodsPropertiesAndTypedDSL() async throws {
     let mock = WeatherServiceMock()
     let cities = ArgumentCaptor<String>()
     var performedCities: [String] = []
@@ -199,8 +171,7 @@ private func generatedMockSupportsMethodsPropertiesAndTypedDSL() async throws {
     #expect(performedCities == ["Toronto", "Toronto", "Toronto"])
 }
 
-@Test
-private func generatedMockSupportsStaticMembersSubscriptsAndInitializers() {
+@Test private func generatedMockSupportsStaticMembersSubscriptsAndInitializers() {
     let mock = AdvancedServiceMock(seed: 1)
 
     Given(AdvancedServiceMock.self, .make(.value(2), willReturn: "two"))
@@ -223,8 +194,7 @@ private func generatedMockSupportsStaticMembersSubscriptsAndInitializers() {
     Verify(mock, 1, .initializer(seed: .value(1)))
 }
 
-@Test
-private func generatedMockSupportsAssociatedTypesOverloadsVariadicsAndInout() {
+@Test private func generatedMockSupportsAssociatedTypesOverloadsVariadicsAndInout() {
     let mock = RepositoryMock<String>()
     var value = 5
 
@@ -247,8 +217,7 @@ private func generatedMockSupportsAssociatedTypesOverloadsVariadicsAndInout() {
     Verify(mock, 1, .mutate(.value(5)))
 }
 
-@Test
-private func generatedActorMockSupportsNonisolatedConfiguration() async {
+@Test private func generatedActorMockSupportsNonisolatedConfiguration() async {
     let mock = WorkerMock()
     Given(mock, .work(.any, willReturn: "done"))
 
@@ -256,8 +225,7 @@ private func generatedActorMockSupportsNonisolatedConfiguration() async {
     Verify(mock, 1, .work(.value(1)))
 }
 
-@Test
-private func generatedMockSupportsTypedThrows() throws {
+@Test private func generatedMockSupportsTypedThrows() throws {
     let returning = TypedThrowerMock()
     Given(returning, .load(.value("count"), willReturn: 3))
     #expect(try returning.load("count") == 3)
@@ -271,8 +239,7 @@ private func generatedMockSupportsTypedThrows() throws {
     Verify(throwing, 1, .load(.value("missing")))
 }
 
-@Test
-private func generatedMockIsolatesGenericSpecializationsAndSupportsRethrows() throws {
+@Test private func generatedMockIsolatesGenericSpecializationsAndSupportsRethrows() throws {
     let mock = GenericServiceMock()
     var callbackValue = 0
 
@@ -291,15 +258,13 @@ private func generatedMockIsolatesGenericSpecializationsAndSupportsRethrows() th
     Verify(mock, 1, .run(returning: Int.self))
 }
 
-@Test
-private func generatedMockSupportsUnusedConstrainedPrimaryAssociatedType() {
+@Test private func generatedMockSupportsUnusedConstrainedPrimaryAssociatedType() {
     let mock = AssociatedOnlyMock<String>()
     let value: any AssociatedOnly<String> = mock
     _ = value
 }
 
-@Test
-private func generatedStaticGenericMethodsIsolateSpecializations() {
+@Test private func generatedStaticGenericMethodsIsolateSpecializations() {
     Given(StaticGenericServiceMock.self, .identity(.value("input"), willReturn: "output"))
     Given(StaticGenericServiceMock.self, .identity(.value(1), willReturn: 2))
 
@@ -309,8 +274,7 @@ private func generatedStaticGenericMethodsIsolateSpecializations() {
     Verify(StaticGenericServiceMock.self, 1, .identity(.value(1)))
 }
 
-@Test @MainActor
-private func generatedGlobalActorMockKeepsConfigurationUsable() {
+@Test @MainActor private func generatedGlobalActorMockKeepsConfigurationUsable() {
     let mock = MainActorServiceMock()
     Given(mock, .title(willReturn: "ready"))
     Given(MainActorServiceMock.self, .enabled(willReturn: true))
@@ -321,8 +285,7 @@ private func generatedGlobalActorMockKeepsConfigurationUsable() {
     Verify(MainActorServiceMock.self, 1, .enabled())
 }
 
-@Test
-private func generatedMockSupportsStandaloneSelfRequirements() {
+@Test private func generatedMockSupportsStandaloneSelfRequirements() {
     let mock = SelfServiceMock()
     Given(mock, .clone(willReturn: mock))
     Given(mock, .isSame(as: .sameInstance(mock), willReturn: true))
@@ -336,8 +299,7 @@ private func generatedMockSupportsStandaloneSelfRequirements() {
     Verify(SelfServiceMock.self, 1, .make())
 }
 
-@Test
-private func generatedMockSnapshotsCopyableOwnershipParameters() {
+@Test private func generatedMockSnapshotsCopyableOwnershipParameters() {
     let mock = OwnershipServiceMock()
     Given(mock, .borrow(.value("borrowed"), willReturn: 1))
     Given(mock, .consume(.value("consumed"), willReturn: 2))
@@ -351,24 +313,21 @@ private func generatedMockSnapshotsCopyableOwnershipParameters() {
     Verify(mock, 1, .send(.value("sent")))
 }
 
-@Test
-private func generatedUntypedThrowingMemberReturnsFrameworkErrorWhenUnstubbed() async {
+@Test private func generatedUntypedThrowingMemberReturnsFrameworkErrorWhenUnstubbed() async {
     let mock = WeatherServiceMock()
     await #expect(throws: MockError.self) {
         try await mock.temperature(for: "Toronto")
     }
 }
 
-@Test
-private func generatedMockPreservesProtocolWhereAndDropsValueMutationModifier() {
+@Test private func generatedMockPreservesProtocolWhereAndDropsValueMutationModifier() {
     let mock = ProtocolWhereServiceMock<String>()
     Given(mock, .update(willReturn: 1))
     #expect(mock.update() == 1)
     Verify(mock, 1, .update())
 }
 
-@Test
-private func generatedTransientMemberDoesNotRetainAndVerifiesCountOnly() {
+@Test private func generatedTransientMemberDoesNotRetainAndVerifiesCountOnly() {
     let mock = NoncopyableServiceMock()
     var inspected = 0
     Given(mock, .inspect(.matching { $0.raw == 3 }, willProduce: { 9 }))
@@ -405,8 +364,7 @@ private func generatedTransientMemberDoesNotRetainAndVerifiesCountOnly() {
     Verify(genericInitialized, 1, .initializer(valueType: NoncopyableToken.self))
 }
 
-@Test
-private func generatedEffectfulPropertiesAndStaticGenericSubscripts() async throws {
+@Test private func generatedEffectfulPropertiesAndStaticGenericSubscripts() async throws {
     let mock = EffectfulAccessorServiceMock()
     Given(mock, .current(willReturn: 8))
     Given(EffectfulAccessorServiceMock.self, .subscriptGet(.value(2), willReturn: "two"))
@@ -420,8 +378,7 @@ private func generatedEffectfulPropertiesAndStaticGenericSubscripts() async thro
     Verify(mock, 1, .subscriptGet(.value("key")))
 }
 
-@Test
-private func generatedValuePackAndOpaqueParameterFactories() {
+@Test private func generatedValuePackAndOpaqueParameterFactories() {
     let mock = PackAndOpaqueServiceMock(0, "seed")
     Given(mock, .describe(.value(1), .value("a"), willReturn: 2))
     Given(mock, .identifier(.value(Identifier(id: 7)), willReturn: 7))
@@ -436,8 +393,7 @@ private func generatedValuePackAndOpaqueParameterFactories() {
     Verify(mock, 1, .subscriptGet(.value(1), .value("a")))
 }
 
-@Test
-private func generatedNonescapingCallbackActionsAreSynchronousAndRecordOtherArguments() {
+@Test private func generatedNonescapingCallbackActionsAreSynchronousAndRecordOtherArguments() {
     let mock = CallbackServiceMock()
     var received = 0
     Perform(mock, .load(.value(4)) { key, completion in completion(key + 1) })
@@ -460,14 +416,17 @@ private func generatedNonescapingCallbackActionsAreSynchronousAndRecordOtherArgu
 
     var combined = ""
     Perform(mock, .combine { first, second in first(3); second("x") })
-    mock.combine({ combined += String($0) }, second: { combined += $0 })
+    mock.combine {
+        combined += String($0)
+    } second: {
+        combined += $0
+    }
     #expect(combined == "3x")
     Verify(mock, 1, .combine())
 }
 
 #if canImport(ObjectiveC)
-@Test
-private func generatedObjectiveCMockSubclassesNSObjectAndImplementsOptionalRequirements() {
+@Test private func generatedObjectiveCMockSubclassesNSObjectAndImplementsOptionalRequirements() {
     let mock = ObjectiveCServiceMock()
     Given(mock, .fetch(.value(1), willReturn: "one"))
     Given(mock, .title(willReturn: "title"))

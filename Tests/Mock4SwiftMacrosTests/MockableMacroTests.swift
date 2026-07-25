@@ -1,15 +1,15 @@
+#if os(macOS) || os(Linux)
+@testable import Mock4SwiftMacros
 import SwiftSyntax
 import SwiftSyntaxMacroExpansion
 import SwiftSyntaxMacros
 import SwiftSyntaxMacrosTestSupport
 import XCTest
 
-@testable import Mock4SwiftMacros
-
 final class MockableMacroTests: XCTestCase {
     private let macros: [String: Macro.Type] = [
         "Mockable": MockableMacro.self,
-        "MockNoncopyable": MockNoncopyableMacro.self,
+        "MockNoncopyable": MockNoncopyableMacro.self
     ]
 
     func testRejectsNonProtocol() {
@@ -22,7 +22,7 @@ final class MockableMacroTests: XCTestCase {
             struct Service {}
             """,
             diagnostics: [
-                DiagnosticSpec(message: "@Mockable can only be attached to a protocol", line: 1, column: 1),
+                DiagnosticSpec(message: "@Mockable can only be attached to a protocol", line: 1, column: 1)
             ],
             macros: macros
         )
@@ -84,11 +84,11 @@ final class MockableMacroTests: XCTestCase {
 
     func testResolvedProtocolSurfaceGeneratesOriginalMock() throws {
         let source: DeclSyntax = """
-            private protocol __Mock4SwiftResolved_Service {
-                func inherited(_ value: Int) -> String
-                func own() -> Int
-            }
-            """
+        private protocol __Mock4SwiftResolved_Service {
+            func inherited(_ value: Int) -> String
+            func own() -> Int
+        }
+        """
         let declaration = try XCTUnwrap(source.as(ProtocolDeclSyntax.self))
         let attribute: AttributeSyntax = "@_Mock4SwiftResolved(Service.self, access: .public)"
         let context = BasicMacroExpansionContext(lexicalContext: [])
@@ -200,10 +200,10 @@ final class MockableMacroTests: XCTestCase {
 
     func testRethrowsUsesEphemeralClosureDispatcher() throws {
         let declaration: DeclSyntax = """
-            protocol Service {
-                func run<Value>(_ body: () throws -> Value) rethrows -> Value
-            }
-            """
+        protocol Service {
+            func run<Value>(_ body: () throws -> Value) rethrows -> Value
+        }
+        """
         let protocolDecl = try XCTUnwrap(declaration.as(ProtocolDeclSyntax.self))
         let attribute: AttributeSyntax = "@Mockable"
         let context = BasicMacroExpansionContext(lexicalContext: [])
@@ -242,12 +242,15 @@ final class MockableMacroTests: XCTestCase {
             protocol Service {
                 func pack<each Value>(_ values: repeat each Value) -> Int
                 func opaque(_ value: some Equatable) -> Int
+                subscript(_ key: some Hashable) -> String { get }
             }
             """
         )
         XCTAssertTrue(source.contains("repeat Parameter<each Value>"))
         XCTAssertTrue(source.contains("specializationTypeIDs.append(ObjectIdentifier(type))"))
         XCTAssertTrue(source.contains("func opaque<_MockOpaque0: Equatable>"))
+        XCTAssertTrue(source.contains("subscript<_MockOpaque0: Hashable>(_ key: _MockOpaque0)"))
+        XCTAssertTrue(source.contains("MockMember<_MockOpaque0, String>"))
     }
 
     func testTransientMarkerUsesProducerAndCountOnlyVerification() throws {
@@ -378,6 +381,19 @@ final class MockableMacroTests: XCTestCase {
         XCTAssertTrue(source.contains("static func initializer<Value>(_ matching0: Parameter<Value>)"))
     }
 
+    func testOpaqueNoncopyableInitializerUsesSpecializationRegistry() throws {
+        let source = try peerSource(
+            """
+            protocol Service: ~Copyable {
+                @MockNoncopyable init(_ value: consuming some ~Copyable)
+            }
+            """
+        )
+        XCTAssertTrue(source.contains("init<_MockOpaque0: ~Copyable>(_ value: consuming _MockOpaque0)"))
+        XCTAssertTrue(source.contains("typeIDs: [ObjectIdentifier(_MockOpaque0.self)]"))
+        XCTAssertTrue(source.contains("static func initializer<_MockOpaque0: ~Copyable>(valueType _: _MockOpaque0.Type)"))
+    }
+
     func testNonescapingFunctionParameterUsesEphemeralDispatcher() throws {
         let source = try peerSource(
             """
@@ -418,7 +434,7 @@ final class MockableMacroTests: XCTestCase {
             }
             """,
             diagnostics: [
-                DiagnosticSpec(message: "noncopyable associated types are not supported yet", line: 3, column: 5),
+                DiagnosticSpec(message: "noncopyable associated types are not supported yet", line: 3, column: 5)
             ],
             macros: macros
         )
@@ -443,7 +459,7 @@ final class MockableMacroTests: XCTestCase {
                     message: "Swift 6.3 cannot form a transient aggregate containing a borrowed noncopyable parameter; use a single wrapper parameter",
                     line: 3,
                     column: 5
-                ),
+                )
             ],
             macros: macros
         )
@@ -464,7 +480,7 @@ final class MockableMacroTests: XCTestCase {
             }
             """,
             diagnostics: [
-                DiagnosticSpec(message: "nonescaping closure parameters are not supported on noncopyable requirements", line: 3, column: 5),
+                DiagnosticSpec(message: "nonescaping closure parameters are not supported on noncopyable requirements", line: 3, column: 5)
             ],
             macros: macros
         )
@@ -484,7 +500,7 @@ final class MockableMacroTests: XCTestCase {
             }
             """,
             diagnostics: [
-                DiagnosticSpec(message: "settable parameter-pack subscripts are not supported yet", line: 3, column: 5),
+                DiagnosticSpec(message: "settable parameter-pack subscripts are not supported yet", line: 3, column: 5)
             ],
             macros: macros
         )
@@ -505,7 +521,7 @@ final class MockableMacroTests: XCTestCase {
             }
             """,
             diagnostics: [
-                DiagnosticSpec(message: "generic multiargument noncopyable subscripts cannot form a transient argument aggregate", line: 3, column: 5),
+                DiagnosticSpec(message: "generic multiargument noncopyable subscripts cannot form a transient argument aggregate", line: 3, column: 5)
             ],
             macros: macros
         )
@@ -526,7 +542,7 @@ final class MockableMacroTests: XCTestCase {
             }
             """,
             diagnostics: [
-                DiagnosticSpec(message: "generic multiargument noncopyable subscripts cannot form a transient argument aggregate", line: 3, column: 5),
+                DiagnosticSpec(message: "generic multiargument noncopyable subscripts cannot form a transient argument aggregate", line: 3, column: 5)
             ],
             macros: macros
         )
@@ -591,3 +607,4 @@ final class MockableMacroTests: XCTestCase {
     }
 
 }
+#endif

@@ -8,12 +8,14 @@ public final class MockMember<Arguments, Output>: @unchecked Sendable {
         let specificity: Int
         let outcomes: [StubOutcome<Output>]
     }
+
     private struct Action {
         let id: UInt64
         let matches: (Arguments) -> Bool
         let specificity: Int
         let body: (Arguments) -> Void
     }
+
     private struct ActionStub {
         let id: UInt64
         let matches: (Arguments) -> Bool
@@ -33,7 +35,9 @@ public final class MockMember<Arguments, Output>: @unchecked Sendable {
     private var nextID: UInt64 = 0
     private let name: String
 
-    public init(name: String = "member") { self.name = name }
+    public init(name: String = "member") {
+        self.name = name
+    }
 
     public func addStub(
         matching: @escaping (Arguments) -> Bool,
@@ -96,19 +100,21 @@ public final class MockMember<Arguments, Output>: @unchecked Sendable {
 
         let stub = bestStub(in: snapshot.1, arguments: arguments)
         let actionStubOutcome = bestActionStub(in: matchingActionStubs, forAction: false)
-        let selected: (id: UInt64, outcomes: [StubOutcome<Output>])?
-        if let actionStubOutcome, stub.map({ wins(actionStubOutcome.specificity, actionStubOutcome.id, over: $0.specificity, $0.id) }) ?? true {
-            selected = (actionStubOutcome.id, actionStubOutcome.outcomes)
+        let selected: (id: UInt64, outcomes: [StubOutcome<Output>])? = if let actionStubOutcome,
+                                                                          stub.map({ wins(actionStubOutcome.specificity, actionStubOutcome.id, over: $0.specificity, $0.id) }) ?? true {
+            (actionStubOutcome.id, actionStubOutcome.outcomes)
         } else if let stub {
-            selected = (stub.id, stub.outcomes)
+            (stub.id, stub.outcomes)
         } else {
-            selected = nil
+            nil
         }
-        guard let selected else { throw MockError.unstubbed(name) }
+        guard let selected else {
+            throw MockError.unstubbed(name)
+        }
         let outcome = consumeOutcome(id: selected.id, outcomes: selected.outcomes)
         switch outcome {
-        case let .returnValue(value): return value
-        case let .throwError(error): throw error
+            case let .returnValue(value): return value
+            case let .throwError(error): throw error
         }
     }
 
@@ -118,7 +124,11 @@ public final class MockMember<Arguments, Output>: @unchecked Sendable {
 
     public func invocationCount(matching: @escaping (Arguments) -> Bool) -> Int {
         let snapshot = lock.withLock { invocations }
-        return snapshot.reduce(into: 0) { if matching($1) { $0 += 1 } }
+        return snapshot.reduce(into: 0) {
+            if matching($1) {
+                $0 += 1
+            }
+        }
     }
 
     public func verification(matching: @escaping (Arguments) -> Bool, count: Count) -> VerificationResult {
@@ -133,15 +143,21 @@ public final class MockMember<Arguments, Output>: @unchecked Sendable {
     public func reset(_ scopes: [MockScope] = Array(MockScope.all)) {
         let scopes = Set(scopes)
         lock.withLock {
-            if scopes.contains(.invocations) { invocations.removeAll() }
+            if scopes.contains(.invocations) {
+                invocations.removeAll()
+            }
             if scopes.contains(.stubs) {
                 stubs.removeAll()
                 nextOutcome.removeAll()
-                for index in actionStubs.indices { actionStubs[index].stubEnabled = false }
+                for index in actionStubs.indices {
+                    actionStubs[index].stubEnabled = false
+                }
             }
             if scopes.contains(.actions) {
                 actions.removeAll()
-                for index in actionStubs.indices { actionStubs[index].actionEnabled = false }
+                for index in actionStubs.indices {
+                    actionStubs[index].actionEnabled = false
+                }
             }
             actionStubs.removeAll { !$0.actionEnabled && !$0.stubEnabled }
         }
@@ -149,24 +165,36 @@ public final class MockMember<Arguments, Output>: @unchecked Sendable {
 
     private func bestAction(in candidates: [Action], arguments: Arguments) -> Action? {
         candidates.reduce(nil) { winner, candidate in
-            guard candidate.matches(arguments) else { return winner }
-            guard let winner else { return candidate }
+            guard candidate.matches(arguments) else {
+                return winner
+            }
+            guard let winner else {
+                return candidate
+            }
             return wins(candidate.specificity, candidate.id, over: winner.specificity, winner.id) ? candidate : winner
         }
     }
 
     private func bestStub(in candidates: [Stub], arguments: Arguments) -> Stub? {
         candidates.reduce(nil) { winner, candidate in
-            guard candidate.matches(arguments) else { return winner }
-            guard let winner else { return candidate }
+            guard candidate.matches(arguments) else {
+                return winner
+            }
+            guard let winner else {
+                return candidate
+            }
             return wins(candidate.specificity, candidate.id, over: winner.specificity, winner.id) ? candidate : winner
         }
     }
 
     private func bestActionStub(in candidates: [ActionStub], forAction: Bool) -> ActionStub? {
         candidates.reduce(nil) { winner, candidate in
-            guard forAction ? candidate.actionEnabled : candidate.stubEnabled else { return winner }
-            guard let winner else { return candidate }
+            guard forAction ? candidate.actionEnabled : candidate.stubEnabled else {
+                return winner
+            }
+            guard let winner else {
+                return candidate
+            }
             return wins(candidate.specificity, candidate.id, over: winner.specificity, winner.id) ? candidate : winner
         }
     }

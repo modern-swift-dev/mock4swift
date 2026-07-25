@@ -29,30 +29,50 @@ struct MockGenerator {
     private var associatedTypes: [AssociatedTypeDeclSyntax] {
         protocolDecl.memberBlock.members.compactMap { $0.decl.as(AssociatedTypeDeclSyntax.self) }
     }
+
     private var replacements: [String: String] {
         Dictionary(uniqueKeysWithValues: associatedTypes.map { ($0.name.text, $0.name.text + "Type") })
     }
-    private var mockType: String { mockTypeOverride ?? protocolDecl.name.text + "Mock" }
-    private var conformanceType: String { conformanceTypeOverride ?? protocolDecl.name.text }
+
+    private var mockType: String {
+        mockTypeOverride ?? protocolDecl.name.text + "Mock"
+    }
+
+    private var conformanceType: String {
+        conformanceTypeOverride ?? protocolDecl.name.text
+    }
+
     private var isObjectiveC: Bool {
         hasAttribute(named: "objc", in: protocolDecl.attributes)
             || protocolDecl.inheritanceClause?.inheritedTypes.contains(where: { $0.type.trimmedDescription.hasSuffix("NSObjectProtocol") }) == true
     }
+
     private var hasGlobalActor: Bool {
         protocolDecl.attributes.contains { element in
-            guard let attribute = element.as(AttributeSyntax.self) else { return false }
+            guard let attribute = element.as(AttributeSyntax.self) else {
+                return false
+            }
             let name = attribute.attributeName.trimmedDescription.split(separator: ".").last.map(String.init) ?? ""
             return name.hasSuffix("Actor") && name != "Mockable"
         }
     }
-    private var configurationIsolation: String { isActor || hasGlobalActor ? "nonisolated " : "" }
+
+    private var configurationIsolation: String {
+        isActor || hasGlobalActor ? "nonisolated " : ""
+    }
 
     private var access: String {
-        if let accessOverride { return accessOverride }
+        if let accessOverride {
+            return accessOverride
+        }
         for modifier in protocolDecl.modifiers {
             let value = modifier.name.text
-            if value == "private" || value == "fileprivate" { return "fileprivate " }
-            if value == "public" || value == "package" { return value + " " }
+            if value == "private" || value == "fileprivate" {
+                return "fileprivate "
+            }
+            if value == "public" || value == "package" {
+                return value + " "
+            }
         }
         return ""
     }
@@ -63,9 +83,13 @@ struct MockGenerator {
             if let function = item.decl.as(FunctionDeclSyntax.self) {
                 result.append(.function(FunctionMember(declaration: function, index: index, access: access, replacements: replacements, mockType: mockType, factoryIsolation: configurationIsolation)))
             } else if let variable = item.decl.as(VariableDeclSyntax.self) {
-                result.append(contentsOf: PropertyMember.make(variable, index: index, access: access, replacements: replacements, mockType: mockType, factoryIsolation: configurationIsolation).map(GeneratedMember.property))
+                result
+                    .append(contentsOf: PropertyMember.make(variable, index: index, access: access, replacements: replacements, mockType: mockType, factoryIsolation: configurationIsolation)
+                        .map(GeneratedMember.property))
             } else if let subscriptDecl = item.decl.as(SubscriptDeclSyntax.self) {
-                result.append(contentsOf: SubscriptMember.make(subscriptDecl, index: index, access: access, replacements: replacements, mockType: mockType, factoryIsolation: configurationIsolation).map(GeneratedMember.subscriptMember))
+                result
+                    .append(contentsOf: SubscriptMember.make(subscriptDecl, index: index, access: access, replacements: replacements, mockType: mockType, factoryIsolation: configurationIsolation)
+                        .map(GeneratedMember.subscriptMember))
             }
         }
         return result
@@ -93,14 +117,15 @@ struct MockGenerator {
                     diagnose("nonescaping closure parameters are not supported on noncopyable requirements", at: function, in: context)
                     valid = false
                 } else if transient, function.signature.parameterClause.parameters.count > 1,
-                   function.signature.parameterClause.parameters.contains(where: { $0.type.trimmedDescription.hasPrefix("borrowing ") }) {
+                          function.signature.parameterClause.parameters.contains(where: { $0.type.trimmedDescription.hasPrefix("borrowing ") }) {
                     diagnose("Swift 6.3 cannot form a transient aggregate containing a borrowed noncopyable parameter; use a single wrapper parameter", at: function, in: context)
                     valid = false
                 } else if transient, function.signature.parameterClause.parameters.count > 1, function.genericParameterClause != nil {
                     diagnose("generic multiargument noncopyable requirements are not supported yet; use a named wrapper parameter", at: function, in: context)
                     valid = false
                 } else if function.genericParameterClause?.parameters.contains(where: { $0.specifier != nil }) == true,
-                   !(function.signature.parameterClause.parameters.count == 1 && function.signature.parameterClause.parameters.first?.type.trimmedDescription.hasPrefix("repeat each ") == true) {
+                          !(function.signature.parameterClause.parameters.count == 1 && function.signature.parameterClause.parameters.first?.type.trimmedDescription
+                              .hasPrefix("repeat each ") == true) {
                     diagnose("parameter packs currently require one pack parameter", at: function, in: context)
                     valid = false
                 } else if function.signature.returnClause?.type.trimmedDescription.contains("some ") == true {
@@ -164,13 +189,15 @@ struct MockGenerator {
         }
         let generics = genericParts.isEmpty ? "" : "<\(genericParts.joined(separator: ", "))>"
         let whereRequirements = associated.compactMap(\.genericWhereClause?.requirements.trimmedDescription)
-            + [protocolDecl.genericWhereClause?.requirements.trimmedDescription].compactMap { $0 }
+            + [protocolDecl.genericWhereClause?.requirements.trimmedDescription].compactMap(\.self)
         let combinedWhere = whereRequirements.joined(separator: ", ")
         let mockWhere = combinedWhere.isEmpty ? "" : " where " + rewriteType(combinedWhere, replacements: replacements, mockType: mockType)
         let typealiases = associated.map { "    \(access)typealias \($0.name.text) = \(replacements[$0.name.text]!)" }.joined(separator: "\n")
         let typealiasSection = typealiases.isEmpty ? "" : typealiases + "\n\n"
         let availability = protocolDecl.attributes.compactMap { element -> String? in
-            guard let attribute = element.as(AttributeSyntax.self) else { return nil }
+            guard let attribute = element.as(AttributeSyntax.self) else {
+                return nil
+            }
             let name = attribute.attributeName.trimmedDescription.split(separator: ".").last.map(String.init) ?? ""
             return name == "available" || (name.hasSuffix("Actor") && name != "Mockable") ? attribute.trimmedDescription : nil
         }.joined(separator: "\n")
@@ -180,7 +207,16 @@ struct MockGenerator {
         let all = members
         let initializers = protocolDecl.memberBlock.members.enumerated().compactMap { index, item in
             item.decl.as(InitializerDeclSyntax.self).map {
-                InitializerMember(declaration: $0, index: index, access: access, replacements: replacements, mockType: mockType, factoryIsolation: configurationIsolation, isActor: isActor, isObjectiveC: isObjectiveC)
+                InitializerMember(
+                    declaration: $0,
+                    index: index,
+                    access: access,
+                    replacements: replacements,
+                    mockType: mockType,
+                    factoryIsolation: configurationIsolation,
+                    isActor: isActor,
+                    isObjectiveC: isObjectiveC
+                )
             }
         }
         let instance = all.filter { !$0.isStatic }
@@ -205,7 +241,8 @@ struct MockGenerator {
         let staticGivenFactories = staticMembers.map(\.givenFactory).joined(separator: "\n\n")
         let staticVerifyFactories = staticMembers.map(\.verifyFactory).joined(separator: "\n\n")
         let staticPerformFactories = staticMembers.map(\.performFactory).joined(separator: "\n\n")
-        let resets = (instance.filter { !$0.usesRegistry }.map { "        \($0.channelName).reset(scopes)" } + instance.compactMap(\.ephemeralReset) + initializers.filter { !$0.usesRegistry }.map { "        \($0.channelName).reset(scopes)" }).joined(separator: "\n")
+        let resets = (instance.filter { !$0.usesRegistry }.map { "        \($0.channelName).reset(scopes)" } + instance.compactMap(\.ephemeralReset) + initializers.filter { !$0.usesRegistry }
+            .map { "        \($0.channelName).reset(scopes)" }).joined(separator: "\n")
         let channelSection = channels.isEmpty ? "" : channels + "\n\n"
         let givenSection = givenFactories.isEmpty ? "" : "\n\n" + givenFactories
         let verifySection = verifyFactories.isEmpty ? "" : "\n\n" + verifyFactories
@@ -215,13 +252,12 @@ struct MockGenerator {
         let needsGenericRegistry = !genericMembers.isEmpty || initializers.contains(where: \.usesRegistry)
         let genericRegistry = needsGenericRegistry ? "    \(isolation)private let _genericMockRegistry = GenericMockRegistry()\n\n" : ""
         let staticConformance = staticMembers.isEmpty ? "" : ", StaticMock"
-        let defaultInitializer: String
-        if initializers.isEmpty, accessOverride != nil {
-            defaultInitializer = isObjectiveC
+        let defaultInitializer: String = if initializers.isEmpty, accessOverride != nil {
+            isObjectiveC
                 ? "    \(access)override init() { super.init() }\n\n"
                 : "    \(access)init() {}\n\n"
         } else {
-            defaultInitializer = ""
+            ""
         }
         let staticDSL = staticMembers.isEmpty ? "" : """
 
@@ -291,11 +327,17 @@ struct MockGenerator {
         return members.compactMap { item in
             if let variable = item.decl.as(VariableDeclSyntax.self),
                let identifier = variable.bindings.first?.pattern.as(IdentifierPatternSyntax.self)?.identifier.text,
-               identifier.hasPrefix("_mock_") || identifier == "_genericMockRegistry" { return item.decl }
+               identifier.hasPrefix("_mock_") || identifier == "_genericMockRegistry" {
+                return item.decl
+            }
             if let structure = item.decl.as(StructDeclSyntax.self),
-               ["Given", "Verify", "Perform", "StaticGiven", "StaticVerify", "StaticPerform"].contains(structure.name.text) { return item.decl }
+               ["Given", "Verify", "Perform", "StaticGiven", "StaticVerify", "StaticPerform"].contains(structure.name.text) {
+                return item.decl
+            }
             if let function = item.decl.as(FunctionDeclSyntax.self),
-               ["given", "perform", "verification", "resetMock"].contains(function.name.text) { return item.decl }
+               ["given", "perform", "verification", "resetMock"].contains(function.name.text) {
+                return item.decl
+            }
             return nil
         }
     }

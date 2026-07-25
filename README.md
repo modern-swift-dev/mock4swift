@@ -20,7 +20,7 @@ Add the package to a Swift 6.3 project, then add `Mock4Swift`, exactly one runne
 )
 ```
 
-The plugin resolves same-package inherited protocols and composition aliases. Direct protocols still use the macro alone.
+The plugin resolves inherited protocols and composition aliases from the target and its reachable SwiftPM source dependencies. Direct protocols still use the macro alone.
 
 The package supports Swift 6.3 on Linux and iOS 17, macOS 13, tvOS 17, and watchOS 10 or newer.
 
@@ -129,7 +129,7 @@ This applies to `rethrows` too. Multiple ordinary nonescaping closure parameters
 
 ## Inherited protocols and composition aliases
 
-Attach `@Mockable` to the child protocol. The build plugin recursively collects requirements from parent protocols in the same package:
+Attach `@Mockable` to the child protocol. The build plugin recursively collects requirements from parent protocols in the same package or a reachable SwiftPM source dependency:
 
 ```swift
 protocol Parent {
@@ -152,7 +152,16 @@ typealias Combined = ParentA & ParentB
 protocol CombinedService: Combined {}
 ```
 
-Inherited mocks must be top-level `internal`, `package`, or `public` protocols, and their requirement types must be visible from generated source. Direct, non-inherited mocks retain `private` and `fileprivate` support.
+External parents need no extra macro arguments:
+
+```swift
+import ExternalServices
+
+@Mockable
+protocol LocalService: ExternalServices.Service {}
+```
+
+Inherited mocks must be top-level `internal`, `package`, or `public` protocols, and their requirement types must be visible from generated source. Parent protocols from another package must be `public`. Direct, non-inherited mocks retain `private` and `fileprivate` support.
 
 ## Objective-C protocols
 
@@ -170,4 +179,4 @@ Generated mocks do not invent defaults for `Void`, optionals, properties, setter
 
 Distributed actors are unsupported. Protocol requirements cannot use opaque `some` results in Swift; `some` input parameters are supported. Swift 6.3 rejects noncopyable associated types, so Mock4Swift diagnoses them precisely. Parameter packs currently require one pack parameter, and named noncopyable types require `@MockNoncopyable`.
 
-Inherited protocol resolution is limited to source available in the same Swift package; external and binary-module parents are unsupported. Generic requirements with several noncopyable arguments require a named wrapper parameter. Transient requirements with nonescaping callbacks, nonescaping initializer closures, and settable parameter-pack subscripts remain excluded with targeted diagnostics.
+Inherited protocol resolution requires ordinary, unconditional top-level Swift source reachable through the target's SwiftPM dependency graph. Binary XCFrameworks, SDK and precompiled modules, conditional declarations, macro-synthesized declarations, and dependency plugin-generated source are unsupported. Generic requirements with several noncopyable arguments require a named wrapper parameter. Transient requirements with nonescaping callbacks, nonescaping initializer closures, and settable parameter-pack subscripts remain excluded with targeted diagnostics.

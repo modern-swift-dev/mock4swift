@@ -3,14 +3,18 @@ import SwiftSyntax
 
 private func hasAvailabilityAttribute(_ attributes: AttributeListSyntax) -> Bool {
     attributes.contains { element in
-        guard let attribute = element.as(AttributeSyntax.self) else { return false }
+        guard let attribute = element.as(AttributeSyntax.self) else {
+            return false
+        }
         return attribute.attributeName.trimmedDescription.split(separator: ".").last == "available"
     }
 }
 
 func hasAttribute(named expected: String, in attributes: AttributeListSyntax) -> Bool {
     attributes.contains { element in
-        guard let attribute = element.as(AttributeSyntax.self) else { return false }
+        guard let attribute = element.as(AttributeSyntax.self) else {
+            return false
+        }
         return attribute.attributeName.trimmedDescription.split(separator: ".").last == Substring(expected)
     }
 }
@@ -18,16 +22,22 @@ func hasAttribute(named expected: String, in attributes: AttributeListSyntax) ->
 func availabilityAttributes(_ attributes: AttributeListSyntax) -> String {
     attributes.compactMap { element -> String? in
         guard let attribute = element.as(AttributeSyntax.self),
-              attribute.attributeName.trimmedDescription.split(separator: ".").last == "available" else { return nil }
+              attribute.attributeName.trimmedDescription.split(separator: ".").last == "available" else {
+            return nil
+        }
         return attribute.trimmedDescription
     }.joined(separator: "\n")
 }
 
 func witnessAttributePrefix(_ attributes: AttributeListSyntax, indentation: String) -> String {
     let values = attributes.compactMap { element -> String? in
-        guard let attribute = element.as(AttributeSyntax.self) else { return nil }
+        guard let attribute = element.as(AttributeSyntax.self) else {
+            return nil
+        }
         let name = attribute.attributeName.trimmedDescription.split(separator: ".").last.map(String.init) ?? ""
-        guard !["available", "MockNoncopyable"].contains(name) else { return nil }
+        guard !["available", "MockNoncopyable"].contains(name) else {
+            return nil
+        }
         return indentation + attribute.trimmedDescription
     }
     return values.isEmpty ? "" : values.joined(separator: "\n") + "\n"
@@ -41,8 +51,10 @@ func accessorHeader(_ accessor: AccessorDeclSyntax) -> String {
 }
 
 func parsedTypedError(_ effects: String) -> String? {
-    guard let start = effects.range(of: "throws("), let end = effects[start.upperBound...].firstIndex(of: ")") else { return nil }
-    let type = String(effects[start.upperBound..<end]).trimmingCharacters(in: .whitespaces)
+    guard let start = effects.range(of: "throws("), let end = effects[start.upperBound...].firstIndex(of: ")") else {
+        return nil
+    }
+    let type = String(effects[start.upperBound ..< end]).trimmingCharacters(in: .whitespaces)
     return ["Error", "any Error", "any Swift.Error"].contains(type) ? nil : type
 }
 
@@ -60,6 +72,17 @@ func objectIdentifierList(_ metatypes: String) -> String {
     return "[\(values.joined(separator: ", "))]"
 }
 
+func opaqueParameterType(_ text: String, position: Int) -> (name: String, constraint: String)? {
+    var type = text
+    for prefix in ["inout ", "borrowing ", "consuming ", "sending "] where type.hasPrefix(prefix) {
+        type.removeFirst(prefix.count)
+    }
+    guard type.hasPrefix("some ") else {
+        return nil
+    }
+    return ("_MockOpaque\(position)", String(type.dropFirst(5)))
+}
+
 func rewriteType(_ text: String, replacements: [String: String], mockType: String) -> String {
     var text = text
     for (associated, replacement) in replacements {
@@ -72,12 +95,25 @@ func rewriteType(_ text: String, replacements: [String: String], mockType: Strin
     let mapping = replacements.merging(["Self": mockType]) { current, _ in current }
     let names = mapping.keys.sorted { $0.count > $1.count }.map(NSRegularExpression.escapedPattern)
     guard !names.isEmpty,
-          let expression = try? NSRegularExpression(pattern: "\\b(?:\(names.joined(separator: "|")))\\b") else { return text }
+          let expression = try? NSRegularExpression(pattern: "\\b(?:\(names.joined(separator: "|")))\\b") else {
+        return text
+    }
     let result = NSMutableString(string: text)
     let range = NSRange(location: 0, length: result.length)
     for match in expression.matches(in: text, range: range).reversed() {
         let source = result.substring(with: match.range)
-        if let replacement = mapping[source] { result.replaceCharacters(in: match.range, with: replacement) }
+        if let replacement = mapping[source] {
+            result.replaceCharacters(in: match.range, with: replacement)
+        }
     }
     return result as String
+}
+
+extension String {
+    mutating func replaceFirst(_ target: String, with replacement: String) {
+        guard let range = range(of: target) else {
+            return
+        }
+        replaceSubrange(range, with: replacement)
+    }
 }

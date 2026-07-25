@@ -39,8 +39,7 @@ final class AdapterTests: XCTestCase {
     #endif
 }
 
-@Test
-private func swiftTestingAdapterReportsMessageAndSourceLocation() {
+@Test private func swiftTestingAdapterReportsMessageAndSourceLocation() {
     let location = SourceLocation(
         fileID: #fileID,
         filePath: #filePath,

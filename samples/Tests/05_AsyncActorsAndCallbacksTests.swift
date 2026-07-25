@@ -6,34 +6,29 @@ private enum AsyncSampleFailure: Error, Equatable {
     case unavailable
 }
 
-@Mockable
-private protocol AsyncSampleService {
+@Mockable private protocol AsyncSampleService {
     var current: Int { get async throws(AsyncSampleFailure) }
 
     func fetch(_ key: String) async throws(AsyncSampleFailure) -> Int
 }
 
-@Mockable
-private protocol SampleWorker: Actor {
+@Mockable private protocol SampleWorker: Actor {
     func work(_ value: Int) -> String
 }
 
 @MainActor
-@Mockable
-private protocol MainActorViewService {
+@Mockable private protocol MainActorViewService {
     static var enabled: Bool { get }
     func title() -> String
 }
 
-@Mockable
-private protocol CallbackSampleService {
+@Mockable private protocol CallbackSampleService {
     func load(_ key: Int, completion: (Int) -> Void)
     func transform<Value: Equatable>(_ value: Value, completion: (Value) -> Void)
     func combine(_ first: (Int) -> Void, second: (String) -> Void)
 }
 
-@Test
-private func asyncAndTypedThrowingRequirementsKeepTheirEffects() async throws {
+@Test private func asyncAndTypedThrowingRequirementsKeepTheirEffects() async throws {
     let returning = AsyncSampleServiceMock()
 
     // Configuration itself remains synchronous; effects belong to invocation.
@@ -55,8 +50,7 @@ private func asyncAndTypedThrowingRequirementsKeepTheirEffects() async throws {
     #expect(error == .unavailable)
 }
 
-@Test
-private func actorMocksConfigureOutsideTheirActor() async {
+@Test private func actorMocksConfigureOutsideTheirActor() async {
     let worker = SampleWorkerMock()
 
     // Generated configuration and verification channels are nonisolated. Only
@@ -67,8 +61,7 @@ private func actorMocksConfigureOutsideTheirActor() async {
     Verify(worker, 1, .work(.value(1)))
 }
 
-@Test @MainActor
-private func globalActorIsolationIsPreserved() {
+@Test @MainActor private func globalActorIsolationIsPreserved() {
     let view = MainActorViewServiceMock()
 
     Given(view, .title(willReturn: "Ready"))
@@ -80,8 +73,7 @@ private func globalActorIsolationIsPreserved() {
     Verify(MainActorViewServiceMock.self, 1, .enabled())
 }
 
-@Test
-private func nonescapingCallbacksAreForwardedSynchronously() {
+@Test private func nonescapingCallbacksAreForwardedSynchronously() {
     let service = CallbackSampleServiceMock()
     var loaded = 0
     var transformed = 0
@@ -102,7 +94,11 @@ private func nonescapingCallbacksAreForwardedSynchronously() {
 
     service.load(4) { loaded = $0 }
     service.transform(6) { transformed = $0 }
-    service.combine({ combined += String($0) }, second: { combined += $0 })
+    service.combine {
+        combined += String($0)
+    } second: {
+        combined += $0
+    }
 
     #expect(loaded == 5)
     #expect(transformed == 7)

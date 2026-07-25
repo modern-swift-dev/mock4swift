@@ -7,16 +7,14 @@ private enum CatalogFailure: Error, Equatable {
     case timedOut
 }
 
-@Mockable
-private protocol SequencedCatalogService {
+@Mockable private protocol SequencedCatalogService {
     func item(id: Int) throws -> String
     func failingItem(id: Int) throws(CatalogFailure) -> String
     func refresh(_ category: String)
     func rank(for id: Int) -> Int
 }
 
-@Test
-private func returnAndThrowSequencesRepeatTheirLastOutcome() throws {
+@Test private func returnAndThrowSequencesRepeatTheirLastOutcome() throws {
     let returning = SequencedCatalogServiceMock()
 
     // Variadic willReturn values are consumed in order. Once exhausted, the
@@ -36,8 +34,7 @@ private func returnAndThrowSequencesRepeatTheirLastOutcome() throws {
     #expect(throws: CatalogFailure.timedOut) { try throwing.failingItem(id: 1) }
 }
 
-@Test
-private func performAddsSideEffectsAndSatisfiesVoidMembers() {
+@Test private func performAddsSideEffectsAndSatisfiesVoidMembers() {
     let catalog = SequencedCatalogServiceMock()
     var refreshed: [String] = []
 
@@ -52,8 +49,7 @@ private func performAddsSideEffectsAndSatisfiesVoidMembers() {
     Verify(catalog, 2, .refresh(.any))
 }
 
-@Test
-private func specificMatchersWinAndNewestRegistrationBreaksTies() {
+@Test private func specificMatchersWinAndNewestRegistrationBreaksTies() {
     let catalog = SequencedCatalogServiceMock()
 
     // Specific matchers beat `.any`, even when the broad registration is newer.
@@ -67,8 +63,7 @@ private func specificMatchersWinAndNewestRegistrationBreaksTies() {
     #expect(catalog.rank(for: 7) == 71)
 }
 
-@Test
-private func untypedThrowingMembersReportSafeUnstubbedErrors() {
+@Test private func untypedThrowingMembersReportSafeUnstubbedErrors() {
     let catalog = SequencedCatalogServiceMock()
 
     // Untyped `throws` can legally surface MockError, making strict behavior

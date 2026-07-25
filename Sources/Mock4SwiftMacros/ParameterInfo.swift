@@ -12,10 +12,23 @@ struct ParameterInfo {
     let matcher: String
     let position: Int
 
-    var isPack: Bool { type.hasPrefix("repeat each ") }
-    var packElement: String { isPack ? String(type.dropFirst("repeat ".count)) : type }
-    var declaration: String { "\(external == "_" ? "_" : external) \(matcher): \(isPack ? "repeat Parameter<\(packElement)>" : "Parameter<\(type)>")" }
-    var actionDeclaration: String { "\(external == "_" ? "_" : external) \(local): \(type)" }
-    var argumentAccess: String { position == 0 ? "arguments" : "arguments.\(position)" }
-}
+    var isPack: Bool {
+        type.hasPrefix("repeat each ")
+    }
 
+    var packElement: String {
+        isPack ? String(type.dropFirst("repeat ".count)) : type
+    }
+
+    var declaration: String {
+        "\(external == "_" ? "_" : external) \(matcher): \(isPack ? "repeat Parameter<\(packElement)>" : "Parameter<\(type)>")"
+    }
+
+    var actionDeclaration: String {
+        "\(external == "_" ? "_" : external) \(local): \(type)"
+    }
+
+    var argumentAccess: String {
+        position == 0 ? "arguments" : "arguments.\(position)"
+    }
+}

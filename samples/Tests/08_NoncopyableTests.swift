@@ -6,28 +6,21 @@ private struct NoncopyableSampleToken: ~Copyable {
     let rawValue: Int
 }
 
-@Mockable
-private protocol NoncopyableSampleService: ~Copyable {
-    // Named noncopyable types need this marker. Requirements that spell
-    // `~Copyable` directly are selected automatically.
-    @MockNoncopyable
-    var token: NoncopyableSampleToken { get }
+@Mockable private protocol NoncopyableSampleService: ~Copyable {
+    /// Named noncopyable types need this marker. Requirements that spell
+    /// `~Copyable` directly are selected automatically.
+    @MockNoncopyable var token: NoncopyableSampleToken { get }
 
-    @MockNoncopyable
-    func inspect(_ token: borrowing NoncopyableSampleToken) -> Int
+    @MockNoncopyable func inspect(_ token: borrowing NoncopyableSampleToken) -> Int
 
-    @MockNoncopyable
-    func make() -> NoncopyableSampleToken
+    @MockNoncopyable func make() -> NoncopyableSampleToken
 }
 
-@Mockable
-private protocol NoncopyableInitializerSample: ~Copyable {
-    @MockNoncopyable
-    init(_ token: consuming NoncopyableSampleToken)
+@Mockable private protocol NoncopyableInitializerSample: ~Copyable {
+    @MockNoncopyable init(_ token: consuming NoncopyableSampleToken)
 }
 
-@Test
-private func transientMembersUseProducersWithoutRetainingArguments() {
+@Test private func transientMembersUseProducersWithoutRetainingArguments() {
     let service = NoncopyableSampleServiceMock()
     var inspectedValue = 0
 
@@ -66,8 +59,7 @@ private func transientMembersUseProducersWithoutRetainingArguments() {
     Verify(service, 1, .token())
 }
 
-@Test
-private func noncopyableInitializersRecordOnlyInvocationCount() {
+@Test private func noncopyableInitializersRecordOnlyInvocationCount() {
     let initialized = NoncopyableInitializerSampleMock(
         NoncopyableSampleToken(rawValue: 5)
     )

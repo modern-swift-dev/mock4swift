@@ -38,6 +38,8 @@ public func Verify<M: StaticMock>(
 }
 
 private func record(_ result: VerificationResult, sourceLocation: SourceLocation) {
-    guard !result.success else { return }
+    guard !result.success else {
+        return
+    }
     Issue.record(Comment(rawValue: result.message), sourceLocation: sourceLocation)
 }

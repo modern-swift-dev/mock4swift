@@ -7,8 +7,7 @@ protocol InheritedSampleParent {
     func inherited(_ value: Int) -> String
 }
 
-@Mockable
-protocol InheritedSampleChild: InheritedSampleParent {
+@Mockable protocol InheritedSampleChild: InheritedSampleParent {
     init(seed: Int)
     func own() -> Int
 }
@@ -23,11 +22,9 @@ protocol NamedSampleParent {
 
 typealias CombinedSampleRequirements = IndexedSampleParent & NamedSampleParent
 
-@Mockable
-protocol CombinedSampleParents: CombinedSampleRequirements {}
+@Mockable protocol CombinedSampleParents: CombinedSampleRequirements {}
 
-@Test
-private func inheritedProtocolGetsTheNormalTypedDSL() {
+@Test private func inheritedProtocolGetsTheNormalTypedDSL() {
     let child = InheritedSampleChildMock(seed: 3)
 
     // After declaration, usage is identical to a direct @Mockable protocol.
@@ -48,8 +45,7 @@ private func inheritedProtocolGetsTheNormalTypedDSL() {
     Verify(child, 1, .initializer(seed: .value(3)))
 }
 
-@Test
-private func compositionAliasesAndSubscriptsUseGeneratedChannels() {
+@Test private func compositionAliasesAndSubscriptsUseGeneratedChannels() {
     let combined = CombinedSampleParentsMock()
 
     Given(combined, .subscriptGet(.value("key"), willReturn: 1))

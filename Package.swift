@@ -9,19 +9,20 @@ let package = Package(
         .iOS(.v17),
         .macOS(.v13),
         .tvOS(.v17),
-        .watchOS(.v10),
+        .watchOS(.v10)
     ],
     products: [
         .library(name: "Mock4Swift", targets: ["Mock4Swift"]),
         .library(name: "Mock4SwiftTesting", targets: ["Mock4SwiftTesting"]),
         .library(name: "Mock4SwiftXCTest", targets: ["Mock4SwiftXCTest"]),
-        .plugin(name: "Mock4SwiftBuildPlugin", targets: ["Mock4SwiftBuildPlugin"]),
+        .plugin(name: "Mock4SwiftBuildPlugin", targets: ["Mock4SwiftBuildPlugin"])
     ],
     dependencies: [
+        .package(path: "Tests/Fixtures/external-protocols"),
         .package(
             url: "https://github.com/swiftlang/swift-syntax.git",
             exact: "603.0.2"
-        ),
+        )
     ],
     targets: [
         .macro(
@@ -30,7 +31,7 @@ let package = Package(
                 .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftSyntaxBuilder", package: "swift-syntax"),
-                .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxMacros", package: "swift-syntax")
             ]
         ),
         .target(name: "Mock4Swift", dependencies: ["Mock4SwiftMacros"]),
@@ -45,7 +46,7 @@ let package = Package(
             name: "Mock4SwiftGenerator",
             dependencies: [
                 .product(name: "SwiftParser", package: "swift-syntax"),
-                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftSyntax", package: "swift-syntax")
             ]
         ),
         .plugin(
@@ -58,12 +59,18 @@ let package = Package(
             name: "Mock4SwiftMacrosTests",
             dependencies: [
                 "Mock4SwiftMacros",
-                .product(name: "SwiftSyntaxMacrosTestSupport", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxMacrosTestSupport", package: "swift-syntax")
             ]
         ),
         .testTarget(
             name: "Mock4SwiftIntegrationTests",
-            dependencies: ["Mock4Swift", "Mock4SwiftTesting", "Mock4SwiftXCTest", "Mock4SwiftInheritanceFixture"],
+            dependencies: [
+                "Mock4Swift",
+                "Mock4SwiftTesting",
+                "Mock4SwiftXCTest",
+                "Mock4SwiftInheritanceFixture",
+                .product(name: "ExternalProtocols", package: "external-protocols")
+            ],
             plugins: ["Mock4SwiftBuildPlugin"]
         ),
         .testTarget(
@@ -71,7 +78,7 @@ let package = Package(
             dependencies: ["Mock4Swift", "Mock4SwiftTesting", "Mock4SwiftXCTest"],
             path: "samples/Tests",
             plugins: ["Mock4SwiftBuildPlugin"]
-        ),
+        )
     ],
     swiftLanguageModes: [.v6]
 )

@@ -42,6 +42,8 @@ public func Verify<M: StaticMock>(
 }
 
 private func report(_ result: VerificationResult, file: StaticString, line: UInt) {
-    guard !result.success else { return }
+    guard !result.success else {
+        return
+    }
     XCTFail(result.message, file: file, line: line)
 }

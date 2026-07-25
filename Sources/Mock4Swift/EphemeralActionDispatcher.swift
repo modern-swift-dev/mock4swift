@@ -1,6 +1,5 @@
 import Foundation
 
-
 /// Synchronously forwards values such as nonescaping closures to configured
 /// actions without retaining them or recording them as invocation arguments.
 public final class EphemeralActionDispatcher<Arguments, Ephemeral>: @unchecked Sendable {
@@ -31,8 +30,12 @@ public final class EphemeralActionDispatcher<Arguments, Ephemeral>: @unchecked S
     public func dispatch(_ arguments: Arguments, ephemeral: borrowing Ephemeral) {
         let snapshot = lock.withLock { actions }
         let selected: Action? = snapshot.reduce(nil) { winner, candidate in
-            guard candidate.matches(arguments) else { return winner }
-            guard let winner else { return candidate }
+            guard candidate.matches(arguments) else {
+                return winner
+            }
+            guard let winner else {
+                return candidate
+            }
             return candidate.specificity > winner.specificity
                 || (candidate.specificity == winner.specificity && candidate.id > winner.id)
                 ? candidate : winner
@@ -41,8 +44,9 @@ public final class EphemeralActionDispatcher<Arguments, Ephemeral>: @unchecked S
     }
 
     public func reset(_ scopes: [MockScope] = Array(MockScope.all)) {
-        guard scopes.contains(.actions) else { return }
+        guard scopes.contains(.actions) else {
+            return
+        }
         lock.withLock { actions.removeAll() }
     }
 }
-

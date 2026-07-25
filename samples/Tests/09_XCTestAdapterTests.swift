@@ -2,13 +2,12 @@ import Mock4Swift
 import Mock4SwiftXCTest
 import XCTest
 
-@Mockable
-private protocol XCTestGreetingService {
+@Mockable private protocol XCTestGreetingService {
     func greeting(for name: String) -> String
 }
 
-// Keep XCTestCase internal because Linux uses generated test discovery and does
-// not discover private XCTestCase subclasses.
+/// Keep XCTestCase internal because Linux uses generated test discovery and does
+/// not discover private XCTestCase subclasses.
 final class Mock4SwiftXCTestSample: XCTestCase {
     func testXCTestUsesTheSameGeneratedDSL() {
         let service = XCTestGreetingServiceMock()

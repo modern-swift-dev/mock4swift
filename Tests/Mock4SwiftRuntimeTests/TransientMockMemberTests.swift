@@ -160,10 +160,12 @@ import Testing
     member.addStub(matching: { _ in true }, outcomes: [.producing { 1 }])
 
     try await withThrowingTaskGroup(of: Int.self) { group in
-        for value in 0..<100 {
+        for value in 0 ..< 100 {
             group.addTask { try member.invoke(value) }
         }
-        for try await result in group { #expect(result == 1) }
+        for try await result in group {
+            #expect(result == 1)
+        }
     }
     #expect(member.invocationCount == 100)
 }
@@ -171,16 +173,18 @@ import Testing
 @Test func transientMemberSupportsConcurrentConfiguration() async throws {
     let member = TransientMockMember<Int, Int>()
     await withTaskGroup(of: Void.self) { group in
-        for value in 0..<100 {
+        for value in 0 ..< 100 {
             group.addTask {
                 member.addStub(matching: { $0 == value }, specificity: 1, outcomes: [.producing { value }])
             }
         }
     }
-    for value in 0..<100 { #expect(try member.invoke(value) == value) }
+    for value in 0 ..< 100 {
+        #expect(try member.invoke(value) == value)
+    }
 }
 
-@Test func ephemeralDispatcherForwardsNonescapingClosureWithoutRecordingOrRetainingIt() throws {
+@Test func ephemeralDispatcherForwardsNonescapingClosureWithoutRecordingOrRetainingIt() {
     protocol Service { func call(id: Int, completion: () -> Void) -> Int }
     final class ServiceMock: Service {
         let member = MockMember<Int, Int>(name: "call")

@@ -6,28 +6,24 @@ import Testing
 import Foundation
 #endif
 
-@Mockable
-private protocol GenericRepositorySample {
+@Mockable private protocol GenericRepositorySample {
     associatedtype Item: Equatable
 
     func load() -> Item
     func echo<Value: Equatable>(_ value: Value) -> Value
 }
 
-@Mockable
-private protocol RethrowsSampleService {
+@Mockable private protocol RethrowsSampleService {
     func run<Value>(_ body: () throws -> Value) rethrows -> Value
 }
 
-@Mockable
-private protocol SelfSampleService: AnyObject {
+@Mockable private protocol SelfSampleService: AnyObject {
     static func make() -> Self
     func clone() -> Self
     func isSame(as other: Self) -> Bool
 }
 
-@Mockable
-private protocol OwnershipSampleService {
+@Mockable private protocol OwnershipSampleService {
     func borrow(_ value: borrowing String) -> Int
     func consume(_ value: consuming String) -> Int
     func send(_ value: sending String) -> Int
@@ -41,8 +37,7 @@ private struct SampleIdentifier: SampleIdentifiedValue, Equatable {
     let id: Int
 }
 
-@Mockable
-private protocol PackAndOpaqueSampleService {
+@Mockable private protocol PackAndOpaqueSampleService {
     init<each Seed>(_ seed: repeat each Seed)
     func describe<each Element>(_ values: repeat each Element) -> Int
     func identifier(_ value: some SampleIdentifiedValue) -> Int
@@ -51,17 +46,14 @@ private protocol PackAndOpaqueSampleService {
 
 #if canImport(ObjectiveC)
 @objc
-@Mockable
-private protocol ObjectiveCSampleService: NSObjectProtocol {
-    @objc(fetchValue:)
-    optional func fetch(_ value: Int) -> String?
+@Mockable private protocol ObjectiveCSampleService: NSObjectProtocol {
+    @objc(fetchValue:) optional func fetch(_ value: Int) -> String?
 
     @objc optional var title: String? { get }
 }
 #endif
 
-@Test
-private func associatedAndGenericTypesRemainCompileTimeChecked() {
+@Test private func associatedAndGenericTypesRemainCompileTimeChecked() {
     // Associated types become generated mock generic parameters.
     let repository = GenericRepositorySampleMock<String>()
     Given(repository, .load(willReturn: "loaded"))
@@ -77,8 +69,7 @@ private func associatedAndGenericTypesRemainCompileTimeChecked() {
     Verify(repository, 1, .echo(.value(1)))
 }
 
-@Test
-private func rethrowsCallbacksStayNonescapingAndSpecialized() {
+@Test private func rethrowsCallbacksStayNonescapingAndSpecialized() {
     let service = RethrowsSampleServiceMock()
     var callbackResult = 0
 
@@ -96,8 +87,7 @@ private func rethrowsCallbacksStayNonescapingAndSpecialized() {
     Verify(service, 1, .run(returning: Int.self))
 }
 
-@Test
-private func selfRequirementsUseTheConcreteGeneratedMockType() {
+@Test private func selfRequirementsUseTheConcreteGeneratedMockType() {
     let service = SelfSampleServiceMock()
 
     Given(service, .clone(willReturn: service))
@@ -110,8 +100,7 @@ private func selfRequirementsUseTheConcreteGeneratedMockType() {
     Verify(service, 1, .isSame(as: .sameInstance(service)))
 }
 
-@Test
-private func copyableOwnershipModifiersRecordSnapshots() {
+@Test private func copyableOwnershipModifiersRecordSnapshots() {
     let service = OwnershipSampleServiceMock()
 
     // Copyable borrowing, consuming, and sending parameters can all be matched
@@ -128,8 +117,7 @@ private func copyableOwnershipModifiersRecordSnapshots() {
     Verify(service, 1, .send(.value("sent")))
 }
 
-@Test
-private func parameterPacksAndOpaqueInputsGetTypedFactories() {
+@Test private func parameterPacksAndOpaqueInputsGetTypedFactories() {
     let service = PackAndOpaqueSampleServiceMock(0, "seed")
     let identifier = SampleIdentifier(id: 7)
 
@@ -150,8 +138,7 @@ private func parameterPacksAndOpaqueInputsGetTypedFactories() {
 }
 
 #if canImport(ObjectiveC)
-@Test
-private func objectiveCOptionalRequirementsUseTheSameDSL() {
+@Test private func objectiveCOptionalRequirementsUseTheSameDSL() {
     let service = ObjectiveCSampleServiceMock()
 
     // On Apple platforms the generated mock subclasses NSObject and implements

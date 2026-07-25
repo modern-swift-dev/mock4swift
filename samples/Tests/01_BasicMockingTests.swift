@@ -2,18 +2,16 @@ import Mock4Swift
 import Mock4SwiftTesting
 import Testing
 
-// Attach @Mockable to the protocol used by production code. The macro creates a
-// peer named BasicWeatherServiceMock plus typed Given, Perform, and Verify DSLs.
-@Mockable
-private protocol BasicWeatherService {
+/// Attach @Mockable to the protocol used by production code. The macro creates a
+/// peer named BasicWeatherServiceMock plus typed Given, Perform, and Verify DSLs.
+@Mockable private protocol BasicWeatherService {
     var unit: String { get set }
 
     func temperature(for city: String) async throws -> Double
     func save(_ value: Int)
 }
 
-@Test
-private func basicMockingWorkflow() async throws {
+@Test private func basicMockingWorkflow() async throws {
     // Arrange: construct the generated mock directly. No generated source file,
     // build plugin, or runtime type lookup is involved.
     let weather = BasicWeatherServiceMock()

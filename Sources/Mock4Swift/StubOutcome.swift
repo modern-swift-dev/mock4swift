@@ -5,6 +5,11 @@ public enum StubOutcome<Output> {
     case returnValue(Output)
     case throwError(any Error)
 
-    public static func returning(_ value: Output) -> Self { .returnValue(value) }
-    public static func throwing(_ error: any Error) -> Self { .throwError(error) }
+    public static func returning(_ value: Output) -> Self {
+        .returnValue(value)
+    }
+
+    public static func throwing(_ error: any Error) -> Self {
+        .throwError(error)
+    }
 }

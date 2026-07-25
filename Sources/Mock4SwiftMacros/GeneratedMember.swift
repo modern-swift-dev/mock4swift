@@ -10,22 +10,80 @@ enum GeneratedMember {
     case property(PropertyMember)
     case subscriptMember(SubscriptMember)
 
-    var channelName: String { switch self { case .function(let x): x.channelName; case .property(let x): x.channelName; case .subscriptMember(let x): x.channelName } }
-    var displayName: String { switch self { case .function(let x): x.displayName; case .property(let x): x.displayName; case .subscriptMember(let x): x.displayName } }
-    var argumentsType: String { switch self { case .function(let x): x.argumentsType; case .property(let x): x.argumentsType; case .subscriptMember(let x): x.argumentsType } }
-    var outputType: String { switch self { case .function(let x): x.outputType; case .property(let x): x.outputType; case .subscriptMember(let x): x.outputType } }
-    var isTransient: Bool { switch self { case .function(let x): x.isTransient; case .property(let x): x.isTransient; case .subscriptMember(let x): x.isTransient } }
-    var channelType: String { "\(isTransient ? "TransientMockMember" : "MockMember")<\(argumentsType), \(outputType)>" }
-    var channelConstructor: String { "\(channelType)(name: \"\(displayName)\")" }
-    var isStatic: Bool { switch self { case .function(let x): x.isStatic; case .property(let x): x.isStatic; case .subscriptMember(let x): x.isStatic } }
-    var isGeneric: Bool { switch self { case .function(let x): x.isGeneric; case .property: false; case .subscriptMember(let x): x.isGeneric } }
-    var usesRegistry: Bool { switch self { case .function(let x): x.usesRegistry; case .property(let x): x.usesRegistry; case .subscriptMember(let x): x.usesRegistry } }
-    var witness: String { switch self { case .function(let x): x.witness; case .property(let x): x.witness; case .subscriptMember(let x): x.witness } }
-    var givenFactory: String { switch self { case .function(let x): x.givenFactory; case .property(let x): x.givenFactory; case .subscriptMember(let x): x.givenFactory } }
-    var verifyFactory: String { switch self { case .function(let x): x.verifyFactory; case .property(let x): x.verifyFactory; case .subscriptMember(let x): x.verifyFactory } }
-    var performFactory: String { switch self { case .function(let x): x.performFactory; case .property(let x): x.performFactory; case .subscriptMember(let x): x.performFactory } }
-    var ephemeralChannelDeclaration: String? { if case .function(let value) = self { value.ephemeralChannelDeclaration } else { nil } }
-    var ephemeralReset: String? { if case .function(let value) = self, value.hasEphemeralDispatcher, !value.ephemeralUsesRegistry { "        \(value.ephemeralChannelName).reset(scopes)" } else { nil } }
-    var argumentsStructDeclaration: String? { switch self { case .function(let value): value.argumentsStructDeclaration; case .subscriptMember(let value): value.argumentsStructDeclaration; case .property: nil } }
-}
+    var channelName: String {
+        switch self { case let .function(x): x.channelName; case let .property(x): x.channelName; case let .subscriptMember(x): x.channelName }
+    }
 
+    var displayName: String {
+        switch self { case let .function(x): x.displayName; case let .property(x): x.displayName; case let .subscriptMember(x): x.displayName }
+    }
+
+    var argumentsType: String {
+        switch self { case let .function(x): x.argumentsType; case let .property(x): x.argumentsType; case let .subscriptMember(x): x.argumentsType }
+    }
+
+    var outputType: String {
+        switch self { case let .function(x): x.outputType; case let .property(x): x.outputType; case let .subscriptMember(x): x.outputType }
+    }
+
+    var isTransient: Bool {
+        switch self { case let .function(x): x.isTransient; case let .property(x): x.isTransient; case let .subscriptMember(x): x.isTransient }
+    }
+
+    var channelType: String {
+        "\(isTransient ? "TransientMockMember" : "MockMember")<\(argumentsType), \(outputType)>"
+    }
+
+    var channelConstructor: String {
+        "\(channelType)(name: \"\(displayName)\")"
+    }
+
+    var isStatic: Bool {
+        switch self { case let .function(x): x.isStatic; case let .property(x): x.isStatic; case let .subscriptMember(x): x.isStatic }
+    }
+
+    var isGeneric: Bool {
+        switch self { case let .function(x): x.isGeneric; case .property: false; case let .subscriptMember(x): x.isGeneric }
+    }
+
+    var usesRegistry: Bool {
+        switch self { case let .function(x): x.usesRegistry; case let .property(x): x.usesRegistry; case let .subscriptMember(x): x.usesRegistry }
+    }
+
+    var witness: String {
+        switch self { case let .function(x): x.witness; case let .property(x): x.witness; case let .subscriptMember(x): x.witness }
+    }
+
+    var givenFactory: String {
+        switch self { case let .function(x): x.givenFactory; case let .property(x): x.givenFactory; case let .subscriptMember(x): x.givenFactory }
+    }
+
+    var verifyFactory: String {
+        switch self { case let .function(x): x.verifyFactory; case let .property(x): x.verifyFactory; case let .subscriptMember(x): x.verifyFactory }
+    }
+
+    var performFactory: String {
+        switch self { case let .function(x): x.performFactory; case let .property(x): x.performFactory; case let .subscriptMember(x): x.performFactory }
+    }
+
+    var ephemeralChannelDeclaration: String? {
+        if case let .function(value) = self {
+            value.ephemeralChannelDeclaration
+        } else {
+            nil
+        }
+    }
+
+    var ephemeralReset: String? {
+        if case let .function(value) = self, value.hasEphemeralDispatcher,
+           !value.ephemeralUsesRegistry {
+            "        \(value.ephemeralChannelName).reset(scopes)"
+        } else {
+            nil
+        }
+    }
+
+    var argumentsStructDeclaration: String? {
+        switch self { case let .function(value): value.argumentsStructDeclaration; case let .subscriptMember(value): value.argumentsStructDeclaration; case .property: nil }
+    }
+}
