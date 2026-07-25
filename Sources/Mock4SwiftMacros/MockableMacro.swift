@@ -20,14 +20,7 @@ public struct MockableMacro: PeerMacro {
             $0.type.trimmedDescription.split(separator: ".").last.map(String.init) ?? ""
         } ?? []
         let markers = Set(["AnyObject", "Sendable", "Actor", "~Copyable", "NSObjectProtocol"])
-        if let custom = inherited.first(where: { !markers.contains($0) }) {
-            diagnose(
-                "@Mockable cannot inspect inherited protocol '\(custom)'; use @MockableMembers on a handwritten mock",
-                at: protocolDecl,
-                in: context
-            )
-            return []
-        }
+        if inherited.contains(where: { !markers.contains($0) }) { return [] }
 
         let generator = MockGenerator(protocolDecl: protocolDecl, isActor: inherited.contains("Actor"))
         guard generator.validate(in: context) else { return [] }

@@ -4,7 +4,7 @@ import SwiftSyntax
 import SwiftSyntaxBuilder
 import SwiftSyntaxMacros
 
-/// Syntax-only marker consumed by `@Mockable` and `@MockableMembers`.
+/// Syntax-only marker consumed by `@Mockable`.
 public struct MockNoncopyableMacro: PeerMacro {
     public static func expansion(
         of node: AttributeSyntax,
@@ -12,4 +12,3 @@ public struct MockNoncopyableMacro: PeerMacro {
         in context: some MacroExpansionContext
     ) throws -> [DeclSyntax] { [] }
 }
-

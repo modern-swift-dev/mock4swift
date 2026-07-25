@@ -1,16 +1,26 @@
 # Mock4Swift
 
-`Mock4Swift` creates strict protocol mocks at compile time with Swift 6.3 macros. It takes inspiration from [SwiftyMocky](https://github.com/MakeAWishFoundation/SwiftyMocky), without Sourcery, source scanning, a CLI, a build plugin, or generated source files.
+`Mock4Swift` creates strict protocol mocks at compile time with Swift 6.3 macros. It takes inspiration from [SwiftyMocky](https://github.com/MakeAWishFoundation/SwiftyMocky), without Sourcery or checked-in generated source files.
 
 ## Installation
 
-Add the package to a Swift 6.3 project, then add `Mock4Swift` and exactly one runner adapter to the test target:
+Add the package to a Swift 6.3 project, then add `Mock4Swift`, exactly one runner adapter, and the build plugin. Attach the plugin to every target that declares an inherited `@Mockable` protocol:
 
 ```swift
-.product(name: "Mock4Swift", package: "mock-4-swift"),
-.product(name: "Mock4SwiftTesting", package: "mock-4-swift"),
-// or: .product(name: "Mock4SwiftXCTest", package: "mock-4-swift")
+.testTarget(
+    name: "AppTests",
+    dependencies: [
+        .product(name: "Mock4Swift", package: "mock-4-swift"),
+        .product(name: "Mock4SwiftTesting", package: "mock-4-swift"),
+        // or: .product(name: "Mock4SwiftXCTest", package: "mock-4-swift")
+    ],
+    plugins: [
+        .plugin(name: "Mock4SwiftBuildPlugin", package: "mock-4-swift"),
+    ]
+)
 ```
+
+The plugin resolves same-package inherited protocols and composition aliases. Direct protocols still use the macro alone.
 
 The package supports Swift 6.3 on Linux and iOS 17, macOS 13, tvOS 17, and watchOS 10 or newer.
 
@@ -119,52 +129,30 @@ This applies to `rethrows` too. Multiple ordinary nonescaping closure parameters
 
 ## Inherited protocols and composition aliases
 
-Peer macros cannot inspect requirements inherited from a custom protocol. Declare the complete witness surface on a handwritten final mock and use `@MockableMembers`:
+Attach `@Mockable` to the child protocol. The build plugin recursively collects requirements from parent protocols in the same package:
 
 ```swift
 protocol Parent {
     func inherited(_ value: Int) -> String
 }
 
+@Mockable
 protocol Child: Parent {
-    func own() -> Int
-}
-
-@MockableMembers
-final class ChildMock: Child {
     init(seed: Int)
-    func inherited(_ value: Int) -> String
     func own() -> Int
 }
 ```
 
-The macro supplies bodies, typed DSL factories, channels, resets, and `Mock` conformance. Bodyless methods, get/set properties, and initializers are supported. Swift rejects bodyless class subscripts before accessor-macro synthesis; use the accessor-body escape hatch below.
-
-This escape hatch also supports protocol-composition aliases because the handwritten mock declares the complete witness surface:
+`ChildMock` includes parent and child methods, properties, subscripts, initializers, typed DSL factories, channels, and resets. Composition aliases work through an annotated protocol:
 
 ```swift
 typealias Combined = ParentA & ParentB
 
-@MockableMembers
-final class CombinedMock: Combined {
-    func parentAMember() -> Int
-    func parentBMember() -> String
-}
+@Mockable
+protocol CombinedService: Combined {}
 ```
 
-For inherited subscripts, invoke `#MockableAccessor()` in each accessor body. The setter needs an explicit `Void` context:
-
-```swift
-@MockableMembers
-final class IndexedMock: IndexedParent {
-    subscript(_ key: String) -> Int {
-        get { #MockableAccessor() }
-        set { #MockableAccessor() as Void }
-    }
-}
-```
-
-This generates the usual `subscriptGet` and `subscriptSet` DSL. Swift 6.3 rejects the originally proposed `@MockableAccessor get` / `set` form before macro synthesis; the freestanding expression macro is the replacement.
+Inherited mocks must be top-level `internal`, `package`, or `public` protocols, and their requirement types must be visible from generated source. Direct, non-inherited mocks retain `private` and `fileprivate` support.
 
 ## Objective-C protocols
 
@@ -182,4 +170,4 @@ Generated mocks do not invent defaults for `Void`, optionals, properties, setter
 
 Distributed actors are unsupported. Protocol requirements cannot use opaque `some` results in Swift; `some` input parameters are supported. Swift 6.3 rejects noncopyable associated types, so Mock4Swift diagnoses them precisely. Parameter packs currently require one pack parameter, and named noncopyable types require `@MockNoncopyable`.
 
-Direct `@Mockable` generation cannot inspect custom inherited protocols or protocol-composition aliases; use `@MockableMembers`. Generic requirements with several noncopyable arguments require a named wrapper parameter. Transient requirements with nonescaping callbacks, nonescaping initializer closures, and settable parameter-pack subscripts remain excluded with targeted diagnostics.
+Inherited protocol resolution is limited to source available in the same Swift package; external and binary-module parents are unsupported. Generic requirements with several noncopyable arguments require a named wrapper parameter. Transient requirements with nonescaping callbacks, nonescaping initializer closures, and settable parameter-pack subscripts remain excluded with targeted diagnostics.

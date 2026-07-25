@@ -1,49 +1,5 @@
 import Foundation
-import SwiftDiagnostics
 import SwiftSyntax
-import SwiftSyntaxBuilder
-import SwiftSyntaxMacros
-
-func hasExplicitMockableAccessors(_ declaration: SubscriptDeclSyntax) -> Bool {
-    guard let block = declaration.accessorBlock, case .accessors(let accessors) = block.accessors else { return false }
-    return !accessors.isEmpty && accessors.allSatisfy { accessor in
-        accessor.attributes.contains { element in
-            guard let attribute = element.as(AttributeSyntax.self) else { return false }
-            return attribute.attributeName.trimmedDescription.split(separator: ".").last == "MockableAccessor"
-        }
-    }
-}
-
-func hasExpressionMockableAccessors(_ declaration: SubscriptDeclSyntax) -> Bool {
-    guard let block = declaration.accessorBlock, case .accessors(let accessors) = block.accessors else { return false }
-    return !accessors.isEmpty && accessors.allSatisfy { $0.body?.trimmedDescription.contains("#MockableAccessor") == true }
-}
-
-
-func witnessIndex(_ node: AttributeSyntax) -> Int? {
-    guard case .argumentList(let arguments) = node.arguments,
-          let literal = arguments.first?.expression.as(IntegerLiteralExprSyntax.self) else { return nil }
-    return Int(literal.literal.text)
-}
-
-
-func enclosingMockInfo(_ context: some MacroExpansionContext) -> (name: String, isActor: Bool, isolated: String)? {
-    for syntax in context.lexicalContext.reversed() {
-        if let declaration = syntax.as(ClassDeclSyntax.self) {
-            let isolated = declaration.attributes.contains { element in
-                guard let attribute = element.as(AttributeSyntax.self) else { return false }
-                let name = attribute.attributeName.trimmedDescription.split(separator: ".").last.map(String.init) ?? ""
-                return name.hasSuffix("Actor") && name != "MockableMembers"
-            }
-            return (declaration.name.text, false, isolated ? "nonisolated " : "")
-        }
-        if let declaration = syntax.as(ActorDeclSyntax.self) {
-            return (declaration.name.text, true, "nonisolated ")
-        }
-    }
-    return nil
-}
-
 
 private func hasAvailabilityAttribute(_ attributes: AttributeListSyntax) -> Bool {
     attributes.contains { element in
@@ -71,7 +27,7 @@ func witnessAttributePrefix(_ attributes: AttributeListSyntax, indentation: Stri
     let values = attributes.compactMap { element -> String? in
         guard let attribute = element.as(AttributeSyntax.self) else { return nil }
         let name = attribute.attributeName.trimmedDescription.split(separator: ".").last.map(String.init) ?? ""
-        guard !["available", "MockNoncopyable", "MockableAccessor"].contains(name) else { return nil }
+        guard !["available", "MockNoncopyable"].contains(name) else { return nil }
         return indentation + attribute.trimmedDescription
     }
     return values.isEmpty ? "" : values.joined(separator: "\n") + "\n"
@@ -103,7 +59,6 @@ func objectIdentifierList(_ metatypes: String) -> String {
     let values = metatypes.split(separator: ",").map { "ObjectIdentifier(\($0.trimmingCharacters(in: .whitespaces)))" }
     return "[\(values.joined(separator: ", "))]"
 }
-
 
 func rewriteType(_ text: String, replacements: [String: String], mockType: String) -> String {
     var text = text

@@ -9,11 +9,7 @@ import XCTest
 final class MockableMacroTests: XCTestCase {
     private let macros: [String: Macro.Type] = [
         "Mockable": MockableMacro.self,
-        "MockableMembers": MockableMembersMacro.self,
         "MockNoncopyable": MockNoncopyableMacro.self,
-        "MockableAccessor": MockableExplicitAccessorMacro.self,
-        "_Mock4SwiftBody": MockableBodyMacro.self,
-        "_Mock4SwiftAccessor": MockableAccessorMacro.self,
     ]
 
     func testRejectsNonProtocol() {
@@ -71,7 +67,7 @@ final class MockableMacroTests: XCTestCase {
         )
     }
 
-    func testRejectsCustomProtocolInheritance() {
+    func testDefersCustomProtocolInheritanceToBuildPlugin() {
         assertMacroExpansion(
             """
             protocol Parent {}
@@ -82,11 +78,31 @@ final class MockableMacroTests: XCTestCase {
             protocol Parent {}
             protocol Child: Parent {}
             """,
-            diagnostics: [
-                DiagnosticSpec(message: "@Mockable cannot inspect inherited protocol 'Parent'; use @MockableMembers on a handwritten mock", line: 2, column: 1),
-            ],
             macros: macros
         )
+    }
+
+    func testResolvedProtocolSurfaceGeneratesOriginalMock() throws {
+        let source: DeclSyntax = """
+            private protocol __Mock4SwiftResolved_Service {
+                func inherited(_ value: Int) -> String
+                func own() -> Int
+            }
+            """
+        let declaration = try XCTUnwrap(source.as(ProtocolDeclSyntax.self))
+        let attribute: AttributeSyntax = "@_Mock4SwiftResolved(Service.self, access: .public)"
+        let context = BasicMacroExpansionContext(lexicalContext: [])
+        let generated = try XCTUnwrap(
+            ResolvedMockableMacro.expansion(
+                of: attribute,
+                providingPeersOf: declaration,
+                in: context
+            ).first
+        ).description
+
+        XCTAssertTrue(generated.contains("public final class ServiceMock: Service, Mock"))
+        XCTAssertTrue(generated.contains("public func inherited(_ value: Int) -> String"))
+        XCTAssertTrue(generated.contains("public func own() -> Int"))
     }
 
     func testGenericMethodUsesRegistry() {
@@ -563,29 +579,6 @@ final class MockableMacroTests: XCTestCase {
         XCTAssertTrue(source.contains("static func subscriptGet<Value>(returning _: Value.Type, _ matching0: Parameter<String>, _ action: @escaping (String) -> Void) -> Self"))
     }
 
-    func testExplicitGenericAvailableSubscriptAccessorUsesRegistry() throws {
-        let source: DeclSyntax = """
-            final class ServiceMock {
-                @available(macOS 99, *)
-                subscript<Value>(_ key: String) -> Value {
-                    get { #MockableAccessor() }
-                }
-            }
-            """
-        let declaration = try XCTUnwrap(source.as(ClassDeclSyntax.self))
-        let subscriptDecl = try XCTUnwrap(declaration.memberBlock.members.first?.decl.as(SubscriptDeclSyntax.self))
-        guard let block = subscriptDecl.accessorBlock, case .accessors(let accessors) = block.accessors else {
-            return XCTFail("expected accessor list")
-        }
-        let expression = try XCTUnwrap(accessors.first?.body?.statements.first?.item.as(MacroExpansionExprSyntax.self))
-        let context = BasicMacroExpansionContext(lexicalContext: [Syntax(declaration)])
-        let expanded = try MockableExplicitAccessorMacro.expansion(of: expression, in: context).description
-
-        XCTAssertTrue(expanded.contains("_genericMockRegistry.member"))
-        XCTAssertTrue(expanded.contains("ObjectIdentifier(Value.self)"))
-        XCTAssertTrue(expanded.contains("member.invoke(key)"))
-    }
-
     private func peerSource(_ source: DeclSyntax, file: StaticString = #filePath, line: UInt = #line) throws -> String {
         let declaration = try XCTUnwrap(source.as(ProtocolDeclSyntax.self), file: file, line: line)
         let attribute: AttributeSyntax = "@Mockable"
@@ -597,85 +590,4 @@ final class MockableMacroTests: XCTestCase {
         ).description
     }
 
-    func testMockableMembersGeneratesPublicRuntimeSupportAndHelpers() throws {
-        let source: DeclSyntax = """
-            public final class ServiceMock: Service {
-                public func value(_ input: Int) -> String
-                public var flag: Bool
-            }
-            """
-        let declaration = try XCTUnwrap(source.as(ClassDeclSyntax.self))
-        let attribute: AttributeSyntax = "@MockableMembers"
-        let context = BasicMacroExpansionContext(lexicalContext: [])
-        let generated = try MockableMembersMacro.expansion(
-            of: attribute,
-            providingMembersOf: declaration,
-            conformingTo: [],
-            in: context
-        ).map(\.description).joined(separator: "\n")
-
-        XCTAssertTrue(generated.contains("private let _mock_value_0"))
-        XCTAssertTrue(generated.contains("private let _mock_flag_get_1"))
-        XCTAssertTrue(generated.contains("public struct Given"))
-        XCTAssertTrue(generated.contains("public struct Verify"))
-        XCTAssertTrue(generated.contains("public struct Perform"))
-
-        let method = try XCTUnwrap(declaration.memberBlock.members.first?.decl)
-        let helper = try MockableMembersMacro.expansion(
-            of: attribute,
-            attachedTo: declaration,
-            providingAttributesFor: method,
-            in: context
-        )
-        XCTAssertEqual(helper.first?.trimmedDescription, "@_Mock4SwiftBody(0)")
-    }
-
-    func testMockableMembersIgnoresImplementedMembersWhenAssigningIndices() throws {
-        let source: DeclSyntax = """
-            final class ServiceMock: Service {
-                func implemented() -> Int { 1 }
-                func generated() -> Int
-            }
-            """
-        let declaration = try XCTUnwrap(source.as(ClassDeclSyntax.self))
-        let attribute: AttributeSyntax = "@MockableMembers"
-        let context = BasicMacroExpansionContext(lexicalContext: [])
-        let generated = try MockableMembersMacro.expansion(
-            of: attribute,
-            providingMembersOf: declaration,
-            conformingTo: [],
-            in: context
-        ).map(\.description).joined(separator: "\n")
-
-        XCTAssertTrue(generated.contains("private let _mock_generated_0"))
-        XCTAssertFalse(generated.contains("_mock_implemented"))
-
-        let implemented = try XCTUnwrap(declaration.memberBlock.members.first?.decl)
-        let bodyless = try XCTUnwrap(declaration.memberBlock.members.dropFirst().first?.decl)
-        XCTAssertTrue(try MockableMembersMacro.expansion(of: attribute, attachedTo: declaration, providingAttributesFor: implemented, in: context).isEmpty)
-        XCTAssertEqual(
-            try MockableMembersMacro.expansion(of: attribute, attachedTo: declaration, providingAttributesFor: bodyless, in: context).first?.trimmedDescription,
-            "@_Mock4SwiftBody(0)"
-        )
-    }
-
-    func testMockableMembersDiagnosesBodylessSubscriptCompilerLimitation() throws {
-        let source: DeclSyntax = """
-            final class ServiceMock: Service {
-                subscript(_ key: String) -> Int
-            }
-            """
-        let declaration = try XCTUnwrap(source.as(ClassDeclSyntax.self))
-        let context = BasicMacroExpansionContext(lexicalContext: [])
-        let attribute: AttributeSyntax = "@MockableMembers"
-
-        _ = try MockableMembersMacro.expansion(
-            of: attribute,
-            providingMembersOf: declaration,
-            conformingTo: [],
-            in: context
-        )
-
-        XCTAssertEqual(context.diagnostics.first?.message, "bodyless class subscripts are rejected by Swift before accessor macro synthesis; provide the subscript implementation manually")
-    }
 }

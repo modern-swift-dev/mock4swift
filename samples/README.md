@@ -10,12 +10,20 @@ From the repository root:
 swift test
 ```
 
-The package requires Swift 6.3. Applications normally add `Mock4Swift` and exactly one verification adapter to their test target:
+The package requires Swift 6.3. Applications normally add `Mock4Swift` and exactly one verification adapter to their test target. Targets declaring inherited `@Mockable` protocols also attach the build plugin:
 
 ```swift
-.product(name: "Mock4Swift", package: "mock-4-swift"),
-.product(name: "Mock4SwiftTesting", package: "mock-4-swift"),
-// Or use Mock4SwiftXCTest instead of Mock4SwiftTesting.
+.testTarget(
+    name: "AppTests",
+    dependencies: [
+        .product(name: "Mock4Swift", package: "mock-4-swift"),
+        .product(name: "Mock4SwiftTesting", package: "mock-4-swift"),
+        // Or use Mock4SwiftXCTest instead of Mock4SwiftTesting.
+    ],
+    plugins: [
+        .plugin(name: "Mock4SwiftBuildPlugin", package: "mock-4-swift"),
+    ]
+)
 ```
 
 ## Core workflow
@@ -38,7 +46,7 @@ Mocks are strict. Mock4Swift does not invent defaults for `Void`, optionals, pro
 4. [`04_MembersAndInitializersTests.swift`](Tests/04_MembersAndInitializersTests.swift) — static members, subscripts, initializers, overloads, variadics, and `inout`.
 5. [`05_AsyncActorsAndCallbacksTests.swift`](Tests/05_AsyncActorsAndCallbacksTests.swift) — async and typed-throwing members, actors, global actors, and callbacks.
 6. [`06_GenericsAndLanguageFeaturesTests.swift`](Tests/06_GenericsAndLanguageFeaturesTests.swift) — generics, associated types, `Self`, ownership, packs, opaque inputs, and Objective-C protocols.
-7. [`07_InheritedAndManualMocksTests.swift`](Tests/07_InheritedAndManualMocksTests.swift) — handwritten mocks for inheritance and protocol compositions.
+7. [`07_InheritedProtocolsTests.swift`](Tests/07_InheritedProtocolsTests.swift) — build-plugin mocks for inherited protocols and composition aliases.
 8. [`08_NoncopyableTests.swift`](Tests/08_NoncopyableTests.swift) — transient producers and count-only verification for noncopyable values.
 9. [`09_XCTestAdapterTests.swift`](Tests/09_XCTestAdapterTests.swift) — the same public DSL with XCTest.
 
@@ -51,4 +59,4 @@ Some failures cannot safely live in an always-green test target. For example, ca
 // _ = mock.value() // Precondition failure: no legal error can be thrown here.
 ```
 
-Macro diagnostics are compile-time failures and are documented rather than compiled. Current Swift 6.3 limits include distributed actors, opaque `some` results, noncopyable associated types, multiple noncopyable generic arguments without a wrapper, nonescaping initializer closures, and settable parameter-pack subscripts. Custom inherited protocols and protocol-composition aliases require the handwritten `@MockableMembers` approach shown in sample 7.
+Macro diagnostics are compile-time failures and are documented rather than compiled. Current Swift 6.3 limits include distributed actors, opaque `some` results, noncopyable associated types, multiple noncopyable generic arguments without a wrapper, nonescaping initializer closures, and settable parameter-pack subscripts. The build plugin handles same-package inherited protocols and protocol-composition aliases; private or fileprivate inherited roots are unsupported because generated mocks compile in a separate file.

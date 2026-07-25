@@ -1,0 +1,178 @@
+import Mock4Swift
+import Mock4SwiftInheritanceFixture
+import Mock4SwiftTesting
+import Testing
+
+public protocol InheritedParent {
+    func inherited(_ value: Int) -> String
+    var flag: Bool { get set }
+}
+
+@Mockable
+public protocol InheritedChild: InheritedParent {
+    init(seed: Int)
+    func own() -> Int
+}
+
+@Test
+private func inheritedMockUsesGeneratedRuntimeSupport() {
+    let mock = InheritedChildMock(seed: 3)
+
+    Given(mock, .inherited(.value(1), willReturn: "one"))
+    Given(mock, .flag(willReturn: true))
+    Given(mock, .flag(set: .any))
+    Given(mock, .own(willReturn: 2))
+
+    #expect(mock.inherited(1) == "one")
+    #expect(mock.flag)
+    mock.flag = false
+    #expect(mock.own() == 2)
+
+    Verify(mock, 1, .inherited(.value(1)))
+    Verify(mock, 1, .flag())
+    Verify(mock, 1, .flag(set: .value(false)))
+    Verify(mock, 1, .own())
+    Verify(mock, 1, .initializer(seed: .value(3)))
+}
+
+@Mockable
+protocol CrossTargetChild: CrossTargetParent {
+    func childValue() -> Int
+}
+
+@Test
+private func samePackageCrossTargetParentIsResolved() {
+    let mock = CrossTargetChildMock()
+    Given(mock, .parentValue(.value(1), willReturn: "one"))
+    Given(mock, .childValue(willReturn: 2))
+
+    #expect(mock.parentValue(1) == "one")
+    #expect(mock.childValue() == 2)
+    Verify(mock, 1, .parentValue(.value(1)))
+    Verify(mock, 1, .childValue())
+}
+
+@Test
+private func inheritedMockCanBeGeneratedInALibraryTarget() {
+    let mock = LibraryTargetChildMock()
+    Given(mock, .parentValue(.value(1), willReturn: "one"))
+    Given(mock, .childValue(willReturn: 2))
+
+    #expect(mock.parentValue(1) == "one")
+    #expect(mock.childValue() == 2)
+}
+
+protocol AssociatedParent {
+    associatedtype Value
+    func inheritedValue() -> Value
+}
+
+@Mockable
+protocol AssociatedChild: AssociatedParent {}
+
+@Test
+private func inheritedAssociatedTypeBecomesMockGenericParameter() {
+    let mock = AssociatedChildMock<String>()
+    Given(mock, .inheritedValue(willReturn: "value"))
+
+    #expect(mock.inheritedValue() == "value")
+    Verify(mock, 1, .inheritedValue())
+}
+
+protocol DiamondBase {
+    func baseValue() -> Int
+}
+
+protocol DiamondLeft: DiamondBase {}
+protocol DiamondRight: DiamondBase {}
+
+@Mockable
+protocol DiamondChild: DiamondLeft, DiamondRight {}
+
+@Test
+private func diamondInheritanceGeneratesOneWitness() {
+    let mock = DiamondChildMock()
+    Given(mock, .baseValue(willReturn: 3))
+
+    #expect(mock.baseValue() == 3)
+    Verify(mock, 1, .baseValue())
+}
+
+@MainActor
+protocol MainActorParent {
+    func value() -> Int
+}
+
+@Mockable
+@MainActor
+protocol MainActorInherited: MainActorParent {}
+
+@Test @MainActor
+private func globalActorInheritedMockKeepsConfigurationNonisolated() {
+    let mock = MainActorInheritedMock()
+    Given(mock, .value(willReturn: 4))
+    #expect(mock.value() == 4)
+    Verify(mock, 1, .value())
+}
+
+protocol ActorParent: Actor {
+    func value() -> Int
+}
+
+@Mockable
+protocol ActorInherited: ActorParent {}
+
+@Test
+private func actorInheritedMockKeepsConfigurationNonisolated() async {
+    let mock = ActorInheritedMock()
+    Given(mock, .value(willReturn: 5))
+    #expect(await mock.value() == 5)
+    Verify(mock, 1, .value())
+}
+
+protocol IndexedParent {
+    subscript(_ key: String) -> Int { get set }
+}
+
+protocol NamedParent {
+    func name() -> String
+}
+
+typealias CombinedParents = IndexedParent & NamedParent
+
+@Mockable
+protocol CombinedChild: CombinedParents {}
+
+@Test
+private func compositionAliasAndSubscriptsUseGeneratedSupport() {
+    let mock = CombinedChildMock()
+    Given(mock, .subscriptGet(.value("key"), willReturn: 1))
+    Given(mock, .subscriptSet(.value("key"), value: .value(2)))
+    Given(mock, .name(willReturn: "combined"))
+
+    #expect(mock["key"] == 1)
+    mock["key"] = 2
+    #expect(mock.name() == "combined")
+    Verify(mock, 1, .subscriptGet(.value("key")))
+    Verify(mock, 1, .subscriptSet(.value("key"), value: .value(2)))
+}
+
+enum InheritedAccessorError: Error {
+    case unavailable
+}
+
+protocol EffectfulIndexedParent {
+    subscript(_ key: Int) -> Int { get async throws(InheritedAccessorError) }
+}
+
+@Mockable
+protocol EffectfulIndexedChild: EffectfulIndexedParent {}
+
+@Test
+private func effectfulSubscriptUsesGeneratedSupport() async throws {
+    let mock = EffectfulIndexedChildMock()
+    Given(mock, .subscriptGet(.value(1), willReturn: 7))
+
+    #expect(try await mock[1] == 7)
+    Verify(mock, 1, .subscriptGet(.value(1)))
+}

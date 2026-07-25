@@ -2,50 +2,32 @@ import Mock4Swift
 import Mock4SwiftTesting
 import Testing
 
-private protocol InheritedSampleParent {
+protocol InheritedSampleParent {
     var flag: Bool { get set }
     func inherited(_ value: Int) -> String
 }
 
-private protocol InheritedSampleChild: InheritedSampleParent {
-    func own() -> Int
-}
-
-// Peer macros cannot inspect requirements inherited from another custom
-// protocol. Declare the complete witness surface on a final class and attach
-// @MockableMembers instead. Bodies and mocking support are generated in place.
-@MockableMembers
-private final class InheritedSampleChildMock: InheritedSampleChild {
+@Mockable
+protocol InheritedSampleChild: InheritedSampleParent {
     init(seed: Int)
-    var flag: Bool
-    func inherited(_ value: Int) -> String
     func own() -> Int
 }
 
-private protocol IndexedSampleParent {
+protocol IndexedSampleParent {
     subscript(_ key: String) -> Int { get set }
 }
 
-private protocol NamedSampleParent {
+protocol NamedSampleParent {
     func name() -> String
 }
 
-private typealias CombinedSampleParents = IndexedSampleParent & NamedSampleParent
+typealias CombinedSampleRequirements = IndexedSampleParent & NamedSampleParent
 
-@MockableMembers
-private final class CombinedSampleParentsMock: CombinedSampleParents {
-    // Swift rejects a bodyless class subscript before the attached macro can
-    // synthesize it. #MockableAccessor is the explicit accessor escape hatch.
-    subscript(_ key: String) -> Int {
-        get { #MockableAccessor() }
-        set { #MockableAccessor() as Void }
-    }
-
-    func name() -> String
-}
+@Mockable
+protocol CombinedSampleParents: CombinedSampleRequirements {}
 
 @Test
-private func handwrittenInheritedMockGetsTheNormalTypedDSL() {
+private func inheritedProtocolGetsTheNormalTypedDSL() {
     let child = InheritedSampleChildMock(seed: 3)
 
     // After declaration, usage is identical to a direct @Mockable protocol.
@@ -67,7 +49,7 @@ private func handwrittenInheritedMockGetsTheNormalTypedDSL() {
 }
 
 @Test
-private func compositionAliasesAndExplicitAccessorsUseGeneratedChannels() {
+private func compositionAliasesAndSubscriptsUseGeneratedChannels() {
     let combined = CombinedSampleParentsMock()
 
     Given(combined, .subscriptGet(.value("key"), willReturn: 1))

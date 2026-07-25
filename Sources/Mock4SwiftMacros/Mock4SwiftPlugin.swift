@@ -6,10 +6,7 @@ import SwiftSyntaxMacros
 struct Mock4SwiftPlugin: CompilerPlugin {
     let providingMacros: [Macro.Type] = [
         MockableMacro.self,
-        MockableMembersMacro.self,
+        ResolvedMockableMacro.self,
         MockNoncopyableMacro.self,
-        MockableExplicitAccessorMacro.self,
-        MockableBodyMacro.self,
-        MockableAccessorMacro.self,
     ]
 }

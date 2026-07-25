@@ -8,6 +8,23 @@ import SwiftSyntaxMacros
 struct MockGenerator {
     let protocolDecl: ProtocolDeclSyntax
     let isActor: Bool
+    let mockTypeOverride: String?
+    let conformanceTypeOverride: String?
+    let accessOverride: String?
+
+    init(
+        protocolDecl: ProtocolDeclSyntax,
+        isActor: Bool,
+        mockType: String? = nil,
+        conformanceType: String? = nil,
+        access: String? = nil
+    ) {
+        self.protocolDecl = protocolDecl
+        self.isActor = isActor
+        self.mockTypeOverride = mockType
+        self.conformanceTypeOverride = conformanceType
+        self.accessOverride = access
+    }
 
     private var associatedTypes: [AssociatedTypeDeclSyntax] {
         protocolDecl.memberBlock.members.compactMap { $0.decl.as(AssociatedTypeDeclSyntax.self) }
@@ -15,7 +32,8 @@ struct MockGenerator {
     private var replacements: [String: String] {
         Dictionary(uniqueKeysWithValues: associatedTypes.map { ($0.name.text, $0.name.text + "Type") })
     }
-    private var mockType: String { protocolDecl.name.text + "Mock" }
+    private var mockType: String { mockTypeOverride ?? protocolDecl.name.text + "Mock" }
+    private var conformanceType: String { conformanceTypeOverride ?? protocolDecl.name.text }
     private var isObjectiveC: Bool {
         hasAttribute(named: "objc", in: protocolDecl.attributes)
             || protocolDecl.inheritanceClause?.inheritedTypes.contains(where: { $0.type.trimmedDescription.hasSuffix("NSObjectProtocol") }) == true
@@ -30,6 +48,7 @@ struct MockGenerator {
     private var configurationIsolation: String { isActor || hasGlobalActor ? "nonisolated " : "" }
 
     private var access: String {
+        if let accessOverride { return accessOverride }
         for modifier in protocolDecl.modifiers {
             let value = modifier.name.text
             if value == "private" || value == "fileprivate" { return "fileprivate " }
@@ -137,7 +156,6 @@ struct MockGenerator {
     }
 
     func render() -> String {
-        let name = protocolDecl.name.text
         let associated = associatedTypes
         let genericParts = associated.map { declaration -> String in
             let inherited = declaration.inheritanceClause?.inheritedTypes.map(\.type.trimmedDescription).joined(separator: " & ")
@@ -197,23 +215,31 @@ struct MockGenerator {
         let needsGenericRegistry = !genericMembers.isEmpty || initializers.contains(where: \.usesRegistry)
         let genericRegistry = needsGenericRegistry ? "    \(isolation)private let _genericMockRegistry = GenericMockRegistry()\n\n" : ""
         let staticConformance = staticMembers.isEmpty ? "" : ", StaticMock"
+        let defaultInitializer: String
+        if initializers.isEmpty, accessOverride != nil {
+            defaultInitializer = isObjectiveC
+                ? "    \(access)override init() { super.init() }\n\n"
+                : "    \(access)init() {}\n\n"
+        } else {
+            defaultInitializer = ""
+        }
         let staticDSL = staticMembers.isEmpty ? "" : """
 
 
             \(access)struct StaticGiven {
-                fileprivate let apply: (\(name)Mock.Type) -> Void
+                fileprivate let apply: (\(mockType).Type) -> Void
 
         \(staticGivenFactories)
             }
 
             \(access)struct StaticVerify {
-                fileprivate let apply: (\(name)Mock.Type, Count) -> VerificationResult
+                fileprivate let apply: (\(mockType).Type, Count) -> VerificationResult
 
         \(staticVerifyFactories)
             }
 
             \(access)struct StaticPerform {
-                fileprivate let apply: (\(name)Mock.Type) -> Void
+                fileprivate let apply: (\(mockType).Type) -> Void
 
         \(staticPerformFactories)
             }
@@ -229,18 +255,19 @@ struct MockGenerator {
         """
 
         let superclass = isObjectiveC ? "Foundation.NSObject, " : ""
-        return attributePrefix + access + "final \(kind) \(name)Mock\(generics): \(superclass)\(name), Mock\(staticConformance)\(mockWhere) {\n"
+        return attributePrefix + access + "final \(kind) \(mockType)\(generics): \(superclass)\(conformanceType), Mock\(staticConformance)\(mockWhere) {\n"
             + typealiasSection
             + genericRegistry
             + channelSection
+            + defaultInitializer
             + "    \(access)struct Given {\n"
-            + "        fileprivate let apply: (\(name)Mock) -> Void\(givenSection)\n"
+            + "        fileprivate let apply: (\(mockType)) -> Void\(givenSection)\n"
             + "    }\n\n"
             + "    \(access)struct Verify {\n"
-            + "        fileprivate let apply: (\(name)Mock, Count) -> VerificationResult\(verifySection)\n"
+            + "        fileprivate let apply: (\(mockType), Count) -> VerificationResult\(verifySection)\n"
             + "    }\n\n"
             + "    \(access)struct Perform {\n"
-            + "        fileprivate let apply: (\(name)Mock) -> Void\(performSection)\n"
+            + "        fileprivate let apply: (\(mockType)) -> Void\(performSection)\n"
             + "    }\n\n"
             + "    \(access)\(isolation)func given(_ given: Given) {\n        given.apply(self)\n    }\n"
             + "    \(access)\(isolation)func perform(_ perform: Perform) {\n        perform.apply(self)\n    }\n"
@@ -274,4 +301,3 @@ struct MockGenerator {
     }
 
 }
-
