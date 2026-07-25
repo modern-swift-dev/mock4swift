@@ -122,127 +122,39 @@ final class MockableMacroTests: XCTestCase {
         XCTAssertTrue(generated.contains("public func own() -> Int"))
     }
 
-    func testGenericMethodUsesRegistry() {
-        assertMacroExpansion(
+    func testGenericMethodUsesRegistry() throws {
+        let source = try peerSource(
             """
-            @Mockable
             protocol Service {
                 func echo<Value>(_ value: Value) -> Value
             }
-            """,
-            expandedSource: """
-            protocol Service {
-                func echo<Value>(_ value: Value) -> Value
-            }
-
-            final class ServiceMock: Service, Mock, InOrderMock {
-                private let _genericMockRegistry = GenericMockRegistry()
-
-                fileprivate var _mock4SwiftOrderedInvocations: [_Mock4SwiftInvocation] {
-                    _genericMockRegistry.orderedInvocations
-                }
-
-                struct Given {
-                    fileprivate let mock: ServiceMock
-
-                    func echo<Value>(_ matching0: Parameter<Value>) -> _Mock4SwiftReturnStub<Value> {
-                        return _Mock4SwiftReturnStub<Value> { values in
-                            let member: MockMember<Value, Value> = mock._genericMockRegistry.member(key: "_mock_echo_0", typeIDs: [ObjectIdentifier(Value.self)]) {
-                                MockMember<Value, Value>(name: "echo_:")
-                            }
-                        member.addStub(matching: { arguments in
-                                    matching0.matches(arguments)
-                                }, specificity: matching0.specificity, outcomes: values.map(StubOutcome.returnValue))
-                        }
-                    }
-                }
-
-                struct Verify {
-                    fileprivate let mock: ServiceMock
-                    fileprivate let count: Count
-                    fileprivate let report: (VerificationResult) -> Void
-
-                    func echo<Value>(_ matching0: Parameter<Value>) {
-                        let member: MockMember<Value, Value> = mock._genericMockRegistry.member(key: "_mock_echo_0", typeIDs: [ObjectIdentifier(Value.self)]) {
-                            MockMember<Value, Value>(name: "echo_:")
-                        }
-                        report(member.verification(matching: { arguments in
-                                    matching0.matches(arguments)
-                                }, count: count))
-                    }
-                }
-
-                struct OrderExpect {
-                    fileprivate let mock: ServiceMock
-                    fileprivate let order: InOrder
-
-                    func echo<Value>(_ matching0: Parameter<Value>) {
-                        let member: MockMember<Value, Value> = mock._genericMockRegistry.member(key: "_mock_echo_0", typeIDs: [ObjectIdentifier(Value.self)]) {
-                            MockMember<Value, Value>(name: "echo_:")
-                        }
-                        order._append(
-                source: mock, invocations: {
-                    mock._mock4SwiftOrderedInvocations
-                },
-                member: "echo_:",
-                matches: { sequence in
-                    member.matchesInvocation(sequence: sequence, matching: { arguments in
-                            matching0.matches(arguments)
-                        })
-                }
-                        )
-                    }
-                }
-
-                struct Perform {
-                    fileprivate let mock: ServiceMock
-
-                    func echo<Value>(_ matching0: Parameter<Value>, _ action: @escaping (Value) -> Void) {
-                        let member: MockMember<Value, Value> = mock._genericMockRegistry.member(key: "_mock_echo_0", typeIDs: [ObjectIdentifier(Value.self)]) {
-                            MockMember<Value, Value>(name: "echo_:")
-                        }
-                        member.addAction(matching: { arguments in
-                                matching0.matches(arguments)
-                            }, specificity: matching0.specificity) { arguments in
-                            action(arguments)
-                        }
-                    }
-                }
-
-                func given() -> Given {
-                    Given(mock: self)
-                }
-                func perform() -> Perform {
-                    Perform(mock: self)
-                }
-                func orderExpectations(in order: InOrder) -> OrderExpect {
-                    OrderExpect(mock: self, order: order)
-                }
-                func verification(
-                    count: Count,
-                    report: @escaping (VerificationResult) -> Void
-                ) -> Verify {
-                    Verify(mock: self, count: count, report: report)
-                }
-                func resetMock(_ scopes: MockScope...) {
-                    _genericMockRegistry.reset(scopes)
-                }
-
-                    func echo<Value>(_ value: Value) -> Value {
-                        let member: MockMember<Value, Value> = _genericMockRegistry.member(key: "_mock_echo_0", typeIDs: [ObjectIdentifier(Value.self)]) {
-                            MockMember<Value, Value>(name: "echo_:")
-                        }
-                        do {
-                            return try member.invoke(value)
-                        }
-                        catch {
-                            preconditionFailure("Unstubbed nonthrowing member echo_:: \\(error)")
-                        }
-                    }
-            }
-            """,
-            macros: macros
+            """
         )
+        XCTAssertTrue(source.contains("MockMember<Value, Void, Value>"))
+        XCTAssertTrue(source.contains("_Mock4SwiftReturnStub<Value, Void, Value, (Value) -> Value>"))
+        XCTAssertTrue(source.contains("typeIDs: [ObjectIdentifier(Value.self)]"))
+        XCTAssertTrue(source.contains(".answering { arguments, ephemeral in answer(arguments) }"))
+    }
+
+    func testAnswerFactoriesMirrorArgumentsAndEffects() throws {
+        let source = try peerSource(
+            """
+            protocol Service {
+                func format(_ value: Int, prefix: String) -> String
+                func fetch(_ key: String) async throws(ServiceError) -> Int
+                func resolve(_ key: Int, compute: () -> Int) -> Int
+                subscript(_ key: String) -> Int { get }
+            }
+            """
+        )
+
+        XCTAssertTrue(source.contains("(Int, String) -> String"))
+        XCTAssertTrue(source.contains("(String) async throws -> Int"))
+        XCTAssertTrue(source.contains("(Int, () -> Int) -> Int"))
+        XCTAssertTrue(source.contains("(String) -> Int"))
+        XCTAssertTrue(source.contains("answer(arguments.value, arguments.prefix)"))
+        XCTAssertTrue(source.contains("await answer(arguments)"))
+        XCTAssertTrue(source.contains("answer(arguments, ephemeral)"))
     }
 
     func testRethrowsUsesEphemeralClosureDispatcher() throws {
@@ -259,11 +171,11 @@ final class MockableMacroTests: XCTestCase {
             MockableMacro.expansion(of: attribute, providingPeersOf: protocolDecl, in: context).first
         ).description
 
-        XCTAssertTrue(source.contains("MockMember<Void, Value>"))
-        XCTAssertTrue(source.contains("EphemeralActionDispatcher<Void, () throws -> Value>"))
+        XCTAssertTrue(source.contains("MockMember<Void, () throws -> Value, Value>"))
+        XCTAssertFalse(source.contains("EphemeralActionDispatcher"))
         XCTAssertTrue(source.contains("withoutActuallyEscaping(body)"))
         XCTAssertTrue(source.contains("func run<Value>(_ body: () throws -> Value) rethrows -> Value"))
-        XCTAssertTrue(source.contains("func run<Value>() -> _Mock4SwiftReturnStub<Value>"))
+        XCTAssertTrue(source.contains("func run<Value>() -> _Mock4SwiftReturnStub<Void, () throws -> Value, Value, Never>"))
         XCTAssertTrue(source.contains("func run<Value>(_ action: @escaping (() throws -> Value) -> Void)"))
         XCTAssertTrue(source.contains("Invalid or unstubbed rethrows member"))
         XCTAssertFalse(source.contains("willThrow"))
@@ -297,7 +209,7 @@ final class MockableMacroTests: XCTestCase {
         XCTAssertTrue(source.contains("specializationTypeIDs.append(ObjectIdentifier(type))"))
         XCTAssertTrue(source.contains("func opaque<_MockOpaque0: Equatable>"))
         XCTAssertTrue(source.contains("subscript<_MockOpaque0: Hashable>(_ key: _MockOpaque0)"))
-        XCTAssertTrue(source.contains("MockMember<_MockOpaque0, String>"))
+        XCTAssertTrue(source.contains("MockMember<_MockOpaque0, Void, String>"))
     }
 
     func testTransientMarkerUsesProducerAndCountOnlyVerification() throws {
@@ -309,8 +221,8 @@ final class MockableMacroTests: XCTestCase {
             }
             """
         )
-        XCTAssertTrue(source.contains("TransientMockMember<Void, Token>"))
-        XCTAssertTrue(source.contains("func make() -> _Mock4SwiftProduceStub<Token>"))
+        XCTAssertTrue(source.contains("TransientMockMember<Void, Void, Token>"))
+        XCTAssertTrue(source.contains("func make() -> _Mock4SwiftProduceStub<Void, Void, Token, Never>"))
         XCTAssertTrue(source.contains("verification(count: count)"))
     }
 
@@ -329,7 +241,7 @@ final class MockableMacroTests: XCTestCase {
         XCTAssertTrue(source.contains("where KeyType: Hashable"))
         XCTAssertTrue(source.contains("typealias Element = ElementType"))
         XCTAssertTrue(source.contains("typealias Key = KeyType"))
-        XCTAssertTrue(source.contains("MockMember<Void, ElementType>"))
+        XCTAssertTrue(source.contains("MockMember<Void, Void, ElementType>"))
     }
 
     func testStaticGenericMethodUsesTypedStaticRegistry() throws {
@@ -375,7 +287,7 @@ final class MockableMacroTests: XCTestCase {
             """
         )
 
-        XCTAssertTrue(source.contains("MockMember<CopyingMock, CopyingMock>"))
+        XCTAssertTrue(source.contains("MockMember<CopyingMock, Void, CopyingMock>"))
         XCTAssertTrue(source.contains("func copy(_ other: CopyingMock) -> CopyingMock"))
         XCTAssertTrue(source.contains("static func make() -> CopyingMock"))
     }
@@ -389,7 +301,7 @@ final class MockableMacroTests: XCTestCase {
             }
             """
         )
-        XCTAssertTrue(source.contains("MockMember<Void, ValueType>"))
+        XCTAssertTrue(source.contains("MockMember<Void, Void, ValueType>"))
         XCTAssertTrue(source.contains("func load() -> ValueType"))
     }
 
@@ -404,7 +316,7 @@ final class MockableMacroTests: XCTestCase {
             """
         )
 
-        XCTAssertTrue(source.contains("MockMember<(seed: Int, labels: [String]), Void>(name: \"initseed:labels:\")"))
+        XCTAssertTrue(source.contains("MockMember<(seed: Int, labels: [String]), Void, Void>(name: \"initseed:labels:\")"))
         XCTAssertTrue(source.contains("required init(seed: Int, labels: String...)"))
         XCTAssertTrue(source.contains("_mock_initializer_0.record((seed: seed, labels: labels))"))
         XCTAssertTrue(source.contains("required init?(name: String)"))
@@ -449,7 +361,8 @@ final class MockableMacroTests: XCTestCase {
             }
             """
         )
-        XCTAssertTrue(source.contains("EphemeralActionDispatcher<Int, (Int) -> Void>"))
+        XCTAssertTrue(source.contains("MockMember<Int, (Int) -> Void, Void>"))
+        XCTAssertFalse(source.contains("EphemeralActionDispatcher"))
         XCTAssertTrue(source.contains("withoutActuallyEscaping(completion)"))
         XCTAssertTrue(source.contains("func load(_ matching0: Parameter<Int>, _ action: @escaping (Int, (Int) -> Void) -> Void)"))
     }
@@ -638,7 +551,7 @@ final class MockableMacroTests: XCTestCase {
             }
             """
         )
-        XCTAssertTrue(source.contains("func subscriptGet<Value>(_ matching0: Parameter<String>) -> _Mock4SwiftReturnStub<Value>"))
+        XCTAssertTrue(source.contains("func subscriptGet<Value>(_ matching0: Parameter<String>) -> _Mock4SwiftReturnStub<String, Void, Value, (String) -> Value>"))
         XCTAssertTrue(source.contains("func subscriptGet<Value>(returning _: Value.Type, _ matching0: Parameter<String>)"))
         XCTAssertTrue(source.contains("func subscriptGet<Value>(returning _: Value.Type, _ matching0: Parameter<String>, _ action: @escaping (String) -> Void)"))
     }

@@ -2,7 +2,7 @@ import Mock4Swift
 import Testing
 
 @Test func memberUsesSpecificNewestStubAndRepeatsLastOutcome() throws {
-    let member = MockMember<String, Int>()
+    let member = MockMember<String, Void, Int>()
     member.addStub(matching: { _ in true }, outcomes: [.returning(1)])
     member.addStub(matching: { $0 == "x" }, specificity: 1, outcomes: [.returning(2), .returning(3)])
     member.addStub(matching: { $0 == "x" }, specificity: 1, outcomes: [.returning(4)])
@@ -11,7 +11,7 @@ import Testing
 }
 
 @Test func moreSpecificStubBeatsNewerRegistration() throws {
-    let member = MockMember<String, Int>()
+    let member = MockMember<String, Void, Int>()
     member.addStub(matching: { $0 == "x" }, specificity: 1, outcomes: [.returning(1)])
     member.addStub(matching: { _ in true }, outcomes: [.returning(2)])
     #expect(try member.invoke("x") == 1)
@@ -19,7 +19,7 @@ import Testing
 
 @Test func mixedOutcomesConsumeInOrderAndRepeatLast() throws {
     enum Failure: Error { case expected }
-    let member = MockMember<Void, Int>()
+    let member = MockMember<Void, Void, Int>()
     member.addStub(
         matching: { _ in true },
         outcomes: [.returning(1), .throwing(Failure.expected), .returning(3)]
@@ -32,7 +32,7 @@ import Testing
 
 @Test func appendableStubRegistrationBuildsMixedOutcomeSequence() throws {
     enum Failure: Error { case expected }
-    let member = MockMember<Void, Int>(name: "value")
+    let member = MockMember<Void, Void, Int>(name: "value")
     let registration = member.addStub(matching: { _ in true }, outcomes: [.returning(1)])
     registration.append([.throwing(Failure.expected), .returning(3)])
 
@@ -42,9 +42,80 @@ import Testing
     #expect(try member.invoke(()) == 3)
 }
 
+@Test func answersUseArgumentsAndMixWithFixedOutcomes() throws {
+    enum Failure: Error { case expected }
+    let member = MockMember<Int, Void, Int>()
+    member.addStub(
+        matching: { _ in true },
+        outcomes: [
+            .answering { arguments, _ in arguments * 2 },
+            .returning(10),
+            .throwing(Failure.expected),
+            .answering { arguments, _ in arguments + 1 }
+        ]
+    )
+
+    #expect(try member.invoke(2) == 4)
+    #expect(try member.invoke(3) == 10)
+    #expect(throws: Failure.expected) { try member.invoke(4) }
+    #expect(try member.invoke(5) == 6)
+    #expect(try member.invoke(6) == 7)
+}
+
+@Test func asyncAnswersSuspendOutsideMemberLock() async throws {
+    let member = MockMember<Int, Void, Int>()
+    member.addStub(
+        matching: { _ in true },
+        outcomes: [.answering { arguments async in
+            #expect(member.invocationCount(matching: { _ in true }) == 1)
+            await Task.yield()
+            return arguments * 2
+        }]
+    )
+
+    #expect(try await member.invokeAsync(4) == 8)
+}
+
+@Test func asyncInvocationRunsEphemeralActionBeforeAnswer() async throws {
+    let member = MockMember<Int, Int, Int>()
+    var actionValue = 0
+    member.addAction(matching: { _ in true }) { arguments, ephemeral in
+        actionValue = arguments + ephemeral
+    }
+    member.addStub(
+        matching: { _ in true },
+        outcomes: [.answering { arguments async in
+            #expect(actionValue == 7)
+            await Task.yield()
+            return arguments * 2
+        }]
+    )
+
+    #expect(try await member.invokeAsync(4, ephemeral: 3) == 8)
+}
+
+@Test func answerBuildersAppendMixedSequence() throws {
+    enum Failure: Error { case expected }
+    typealias Answer = (Int) throws -> Int
+    let member = MockMember<Int, Void, Int>()
+    let builder = _Mock4SwiftThrowingReturnStub<Int, Void, Int, Failure, Answer>(
+        apply: { member.addStub(matching: { _ in true }, outcomes: $0) },
+        answer: { answer in .answering { arguments, _ in try answer(arguments) } }
+    )
+    builder.willAnswer { arguments in arguments }
+        .thenReturn(2)
+        .thenThrow(.expected)
+        .thenAnswer { arguments in arguments * 2 }
+
+    #expect(try member.invoke(1) == 1)
+    #expect(try member.invoke(1) == 2)
+    #expect(throws: Failure.expected) { try member.invoke(1) }
+    #expect(try member.invoke(3) == 6)
+}
+
 @Test func inOrderUsesStrictAdjacencyAcrossSources() throws {
-    let first = MockMember<Int, Void>(name: "first")
-    let second = MockMember<Int, Void>(name: "second")
+    let first = MockMember<Int, Void, Void>(name: "first")
+    let second = MockMember<Int, Void, Void>(name: "second")
     first.addStub(matching: { _ in true }, outcomes: [.returning(())])
     second.addStub(matching: { _ in true }, outcomes: [.returning(())])
 
@@ -98,7 +169,7 @@ import Testing
 }
 
 @Test func actionAndCaptorWorkWithoutLeakingResetState() throws {
-    let member = MockMember<Int, Int>()
+    let member = MockMember<Int, Void, Int>()
     let captor = ArgumentCaptor<Int>()
     let parameter = Parameter<Int>.capturing(captor)
     member.addAction(matching: parameter.matches, specificity: parameter.specificity, action: { _ in })
@@ -111,7 +182,7 @@ import Testing
 }
 
 @Test func coupledVoidActionEvaluatesMatcherOnceAndResetsByScope() throws {
-    let member = MockMember<Int, Void>()
+    let member = MockMember<Int, Void, Void>()
     let captor = ArgumentCaptor<Int>()
     let parameter = Parameter<Int>.capturing(captor)
     var actions = 0
@@ -136,18 +207,18 @@ import Testing
 }
 
 @Test func missingStubThrowsFrameworkError() {
-    let member = MockMember<Void, Void>(name: "work")
+    let member = MockMember<Void, Void, Void>(name: "work")
     #expect(throws: MockError.unstubbed("work")) { try member.invoke(()) }
 }
 
 @Test func recordAddsInvocationWithoutNeedingStub() {
-    let member = MockMember<Int, Void>(name: "init")
+    let member = MockMember<Int, Void, Void>(name: "init")
     member.record(42)
     #expect(member.verification(matching: { $0 == 42 }, count: 1).success)
 }
 
 @Test func everyCountFormMatchesExpectedInvocations() throws {
-    let member = MockMember<Void, Void>()
+    let member = MockMember<Void, Void, Void>()
     member.addStub(matching: { _ in true }, outcomes: [.returning(())])
     try member.invoke(())
     try member.invoke(())
@@ -161,7 +232,7 @@ import Testing
 }
 
 @Test func scopedResetOnlyClearsRequestedState() throws {
-    let member = MockMember<Int, Int>()
+    let member = MockMember<Int, Void, Int>()
     var actions = 0
     member.addAction(matching: { _ in true }, action: { _ in actions += 1 })
     member.addStub(matching: { _ in true }, outcomes: [.returning(1)])
@@ -183,9 +254,9 @@ import Testing
 @Test func staticRegistryReusesTypedMemberAndResetsIt() throws {
     enum Owner {}
     let registry = StaticMockRegistry()
-    let first: MockMember<Void, Int> = registry.member(owner: Owner.self, key: "value") { .init(name: "value") }
+    let first: MockMember<Void, Void, Int> = registry.member(owner: Owner.self, key: "value") { .init(name: "value") }
     first.addStub(matching: { _ in true }, outcomes: [.returning(1)])
-    let second: MockMember<Void, Int> = registry.member(owner: Owner.self, key: "value") { .init(name: "other") }
+    let second: MockMember<Void, Void, Int> = registry.member(owner: Owner.self, key: "value") { .init(name: "other") }
     #expect(first === second)
     #expect(try second.invoke(()) == 1)
     registry.reset(owner: Owner.self, scopes: [.stubs])
@@ -195,8 +266,8 @@ import Testing
 @Test func staticRegistrySeparatesGenericSpecializations() throws {
     enum Owner {}
     let registry = StaticMockRegistry()
-    let strings: MockMember<String, String> = registry.member(owner: Owner.self, key: "echo", types: [String.self]) { .init(name: "echo") }
-    let integers: MockMember<Int, Int> = registry.member(owner: Owner.self, key: "echo", types: [Int.self]) { .init(name: "echo") }
+    let strings: MockMember<String, Void, String> = registry.member(owner: Owner.self, key: "echo", types: [String.self]) { .init(name: "echo") }
+    let integers: MockMember<Int, Void, Int> = registry.member(owner: Owner.self, key: "echo", types: [Int.self]) { .init(name: "echo") }
     strings.addStub(matching: { _ in true }, outcomes: [.returning("text")])
     integers.addStub(matching: { _ in true }, outcomes: [.returning(1)])
     #expect(try strings.invoke("input") == "text")
@@ -208,8 +279,8 @@ import Testing
 
 @Test func genericRegistrySeparatesTypeSpecializations() throws {
     let registry = GenericMockRegistry()
-    let strings: MockMember<String, String> = registry.member(key: "echo", types: [String.self]) { .init(name: "echo") }
-    let integers: MockMember<Int, Int> = registry.member(key: "echo", types: [Int.self]) { .init(name: "echo") }
+    let strings: MockMember<String, Void, String> = registry.member(key: "echo", types: [String.self]) { .init(name: "echo") }
+    let integers: MockMember<Int, Void, Int> = registry.member(key: "echo", types: [Int.self]) { .init(name: "echo") }
     strings.addStub(matching: { _ in true }, outcomes: [.returning("text")])
     integers.addStub(matching: { _ in true }, outcomes: [.returning(1)])
     #expect(try strings.invoke("input") == "text")
@@ -217,7 +288,7 @@ import Testing
 }
 
 @Test func memberSupportsConcurrentInvocation() async throws {
-    let member = MockMember<Int, Int>()
+    let member = MockMember<Int, Void, Int>()
     member.addStub(matching: { _ in true }, outcomes: [.returning(1)])
 
     try await withThrowingTaskGroup(of: Int.self) { group in
@@ -233,7 +304,7 @@ import Testing
 }
 
 @Test func memberSupportsConcurrentConfiguration() async throws {
-    let member = MockMember<Int, Int>()
+    let member = MockMember<Int, Void, Int>()
 
     await withTaskGroup(of: Void.self) { group in
         for value in 0 ..< 100 {

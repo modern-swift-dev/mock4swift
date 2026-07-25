@@ -1,27 +1,27 @@
 import Foundation
 
 /// Thread-safe runtime channel that records invocations and selects matching actions and stubs.
-public final class MockMember<Arguments, Output>: @unchecked Sendable {
+public final class MockMember<Arguments, Ephemeral, Output>: @unchecked Sendable {
     private struct Stub {
         let id: UInt64
         let matches: (Arguments) -> Bool
         let specificity: Int
-        var outcomes: [StubOutcome<Output>]
+        var outcomes: [StubOutcome<Arguments, Ephemeral, Output>]
     }
 
     private struct Action {
         let id: UInt64
         let matches: (Arguments) -> Bool
         let specificity: Int
-        let body: (Arguments) -> Void
+        let body: (Arguments, borrowing Ephemeral) -> Void
     }
 
     private struct ActionStub {
         let id: UInt64
         let matches: (Arguments) -> Bool
         let specificity: Int
-        let outcomes: [StubOutcome<Output>]
-        let body: (Arguments) -> Void
+        let outcomes: [StubOutcome<Arguments, Ephemeral, Output>]
+        let body: (Arguments, borrowing Ephemeral) -> Void
         var actionEnabled = true
         var stubEnabled = true
     }
@@ -48,8 +48,8 @@ public final class MockMember<Arguments, Output>: @unchecked Sendable {
     public func addStub(
         matching: @escaping (Arguments) -> Bool,
         specificity: Int = 0,
-        outcomes: [StubOutcome<Output>]
-    ) -> _Mock4SwiftStubRegistration<Output> {
+        outcomes: [StubOutcome<Arguments, Ephemeral, Output>]
+    ) -> _Mock4SwiftStubRegistration<Arguments, Ephemeral, Output> {
         precondition(!outcomes.isEmpty, "Mock stubs need at least one outcome")
         let id = lock.withLock {
             nextID += 1
@@ -69,7 +69,7 @@ public final class MockMember<Arguments, Output>: @unchecked Sendable {
     public func addAction(
         matching: @escaping (Arguments) -> Bool,
         specificity: Int = 0,
-        action: @escaping (Arguments) -> Void
+        action: @escaping (Arguments, borrowing Ephemeral) -> Void
     ) {
         lock.withLock {
             nextID += 1
@@ -80,8 +80,18 @@ public final class MockMember<Arguments, Output>: @unchecked Sendable {
     public func addAction(
         matching: @escaping (Arguments) -> Bool,
         specificity: Int = 0,
-        outcomes: [StubOutcome<Output>],
         action: @escaping (Arguments) -> Void
+    ) where Ephemeral == Void {
+        addAction(matching: matching, specificity: specificity) { arguments, _ in
+            action(arguments)
+        }
+    }
+
+    public func addAction(
+        matching: @escaping (Arguments) -> Bool,
+        specificity: Int = 0,
+        outcomes: [StubOutcome<Arguments, Ephemeral, Output>],
+        action: @escaping (Arguments, borrowing Ephemeral) -> Void
     ) {
         precondition(!outcomes.isEmpty, "Mock stubs need at least one outcome")
         lock.withLock {
@@ -98,7 +108,18 @@ public final class MockMember<Arguments, Output>: @unchecked Sendable {
         }
     }
 
-    public func invoke(_ arguments: Arguments) throws -> Output {
+    public func addAction(
+        matching: @escaping (Arguments) -> Bool,
+        specificity: Int = 0,
+        outcomes: [StubOutcome<Arguments, Ephemeral, Output>],
+        action: @escaping (Arguments) -> Void
+    ) where Ephemeral == Void {
+        addAction(matching: matching, specificity: specificity, outcomes: outcomes) { arguments, _ in
+            action(arguments)
+        }
+    }
+
+    public func invoke(_ arguments: Arguments, ephemeral: borrowing Ephemeral) throws -> Output {
         let sequence = nextMockInvocationSequence()
         let snapshot = lock.withLock { () -> ([Action], [Stub], [ActionStub]) in
             invocations.append(.init(sequence: sequence, arguments: arguments))
@@ -109,14 +130,14 @@ public final class MockMember<Arguments, Output>: @unchecked Sendable {
         let action = bestAction(in: snapshot.0, arguments: arguments)
         let actionStub = bestActionStub(in: matchingActionStubs, forAction: true)
         if let actionStub, action.map({ wins(actionStub.specificity, actionStub.id, over: $0.specificity, $0.id) }) ?? true {
-            actionStub.body(arguments)
+            actionStub.body(arguments, ephemeral)
         } else {
-            action?.body(arguments)
+            action?.body(arguments, ephemeral)
         }
 
         let stub = bestStub(in: snapshot.1, arguments: arguments)
         let actionStubOutcome = bestActionStub(in: matchingActionStubs, forAction: false)
-        let selected: (id: UInt64, outcomes: [StubOutcome<Output>])? = if let actionStubOutcome,
+        let selected: (id: UInt64, outcomes: [StubOutcome<Arguments, Ephemeral, Output>])? = if let actionStubOutcome,
                                                                           stub.map({ wins(actionStubOutcome.specificity, actionStubOutcome.id, over: $0.specificity, $0.id) }) ?? true {
             (actionStubOutcome.id, actionStubOutcome.outcomes)
         } else if let stub {
@@ -131,7 +152,56 @@ public final class MockMember<Arguments, Output>: @unchecked Sendable {
         switch outcome {
             case let .returnValue(value): return value
             case let .throwError(error): throw error
+            case let .answer(answer): return try answer(arguments, ephemeral)
+            case .asyncAnswer:
+                preconditionFailure("Async mock answer requires async invocation")
         }
+    }
+
+    public func invoke(_ arguments: Arguments) throws -> Output where Ephemeral == Void {
+        try invoke(arguments, ephemeral: ())
+    }
+
+    public func invokeAsync(_ arguments: Arguments, ephemeral: borrowing Ephemeral) async throws -> Output {
+        let sequence = nextMockInvocationSequence()
+        let snapshot = lock.withLock { () -> ([Action], [Stub], [ActionStub]) in
+            invocations.append(.init(sequence: sequence, arguments: arguments))
+            return (actions, stubs, actionStubs)
+        }
+
+        let matchingActionStubs = snapshot.2.filter { $0.matches(arguments) }
+        let action = bestAction(in: snapshot.0, arguments: arguments)
+        let actionStub = bestActionStub(in: matchingActionStubs, forAction: true)
+        if let actionStub, action.map({ wins(actionStub.specificity, actionStub.id, over: $0.specificity, $0.id) }) ?? true {
+            actionStub.body(arguments, ephemeral)
+        } else {
+            action?.body(arguments, ephemeral)
+        }
+
+        let stub = bestStub(in: snapshot.1, arguments: arguments)
+        let actionStubOutcome = bestActionStub(in: matchingActionStubs, forAction: false)
+        let selected: (id: UInt64, outcomes: [StubOutcome<Arguments, Ephemeral, Output>])? = if let actionStubOutcome,
+                                                                                              stub.map({ wins(actionStubOutcome.specificity, actionStubOutcome.id, over: $0.specificity, $0.id) }) ?? true {
+            (actionStubOutcome.id, actionStubOutcome.outcomes)
+        } else if let stub {
+            (stub.id, stub.outcomes)
+        } else {
+            nil
+        }
+        guard let selected else {
+            throw MockError.unstubbed(name)
+        }
+        let outcome = consumeOutcome(id: selected.id, outcomes: selected.outcomes)
+        switch outcome {
+            case let .returnValue(value): return value
+            case let .throwError(error): throw error
+            case let .answer(answer): return try answer(arguments, ephemeral)
+            case let .asyncAnswer(answer): return try await answer(arguments)
+        }
+    }
+
+    public func invokeAsync(_ arguments: Arguments) async throws -> Output where Ephemeral == Void {
+        try await invokeAsync(arguments, ephemeral: ())
     }
 
     public func record(_ arguments: Arguments) {
@@ -234,7 +304,10 @@ public final class MockMember<Arguments, Output>: @unchecked Sendable {
         specificity > otherSpecificity || (specificity == otherSpecificity && id > otherID)
     }
 
-    private func consumeOutcome(id: UInt64, outcomes: [StubOutcome<Output>]) -> StubOutcome<Output> {
+    private func consumeOutcome(
+        id: UInt64,
+        outcomes: [StubOutcome<Arguments, Ephemeral, Output>]
+    ) -> StubOutcome<Arguments, Ephemeral, Output> {
         lock.withLock {
             let index = min(nextOutcome[id, default: 0], outcomes.count - 1)
             nextOutcome[id] = index + 1

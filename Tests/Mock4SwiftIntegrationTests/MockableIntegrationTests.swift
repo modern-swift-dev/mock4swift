@@ -12,6 +12,7 @@ import Foundation
     func temperature(for city: String) async throws -> Double
     func save(_ value: Int)
     func greeting() -> String
+    func format(_ value: Int, prefix: String) -> String
 }
 
 @Mockable private protocol AdvancedService {
@@ -139,6 +140,7 @@ private struct Identifier: IdentifiedValue, Equatable {
     func transform<Value: Equatable>(_ value: Value, completion: (Value) -> Void)
     static func load(_ key: String, completion: (String) -> Void)
     func combine(_ first: (Int) -> Void, second: (String) -> Void)
+    func resolve(_ key: Int, compute: () -> Int) -> Int
 }
 
 #if canImport(ObjectiveC)
@@ -301,6 +303,52 @@ private struct Identifier: IdentifiedValue, Equatable {
     #expect(try await accessors["key"] == "first")
     await #expect(throws: LoadFailure.unavailable) { try await accessors["key"] }
     #expect(try await accessors["key"] == "third")
+}
+
+@Test private func generatedAnswersUseInvocationArgumentsAndMixOutcomes() async throws {
+    let weather = WeatherServiceMock()
+    Given(weather).format(.any, prefix: .any)
+        .willAnswer { value, prefix in "\(prefix)\(value)" }
+        .thenReturn("fixed")
+        .thenAnswer { value, prefix in "\(value)\(prefix)" }
+    #expect(weather.format(2, prefix: "v") == "v2")
+    #expect(weather.format(3, prefix: "v") == "fixed")
+    #expect(weather.format(4, prefix: "v") == "4v")
+    #expect(weather.format(5, prefix: "v") == "5v")
+
+    Given(weather).temperature(for: .any)
+        .willAnswer { city in
+            await Task.yield()
+            return Double(city.count)
+        }
+        .thenReturn(99)
+    #expect(try await weather.temperature(for: "Rome") == 4)
+    #expect(try await weather.temperature(for: "Paris") == 99)
+
+    let throwing = TypedThrowerMock()
+    Given(throwing).load(.any).willAnswer { key in
+        guard key != "missing" else {
+            throw LoadFailure.unavailable
+        }
+        return key.count
+    }
+    #expect(try throwing.load("value") == 5)
+    #expect(throws: LoadFailure.unavailable) { try throwing.load("missing") }
+
+    let advanced = AdvancedServiceMock(seed: 0)
+    Given(advanced).subscriptGet(.any).willAnswer { $0.count }
+    #expect(advanced["answer"] == 6)
+
+    Given(StaticGenericServiceMock.self).identity(Parameter<String>.any).willAnswer { $0 }
+    #expect(StaticGenericServiceMock.identity("typed") == "typed")
+
+    let transient = NoncopyableServiceMock()
+    Given(transient).inspect(.any).willAnswer { $0.raw * 2 }
+    #expect(transient.inspect(NoncopyableToken(raw: 3)) == 6)
+
+    let callbacks = CallbackServiceMock()
+    Given(callbacks).resolve(.any).willAnswer { key, compute in key + compute() }
+    #expect(callbacks.resolve(4) { 5 } == 9)
 }
 
 @Test private func generatedInOrderDSLVerifiesStrictCrossMockSequence() {

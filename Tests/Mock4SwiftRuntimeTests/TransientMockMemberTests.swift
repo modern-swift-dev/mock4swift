@@ -2,7 +2,7 @@ import Mock4Swift
 import Testing
 
 @Test func transientMemberUsesSpecificNewestProducerAndRepeatsLast() throws {
-    let member = TransientMockMember<Int, Int>(name: "transient")
+    let member = TransientMockMember<Int, Void, Int>(name: "transient")
     member.addStub(matching: { _ in true }, outcomes: [.producing { 1 }])
     member.addStub(matching: { $0 == 1 }, specificity: 1, outcomes: [.producing { 2 }, .producing { 3 }])
     member.addStub(matching: { $0 == 1 }, specificity: 1, outcomes: [.producing { 4 }])
@@ -13,7 +13,7 @@ import Testing
 }
 
 @Test func transientMemberRepeatsSelectedProducerSequence() throws {
-    let member = TransientMockMember<Int, Int>()
+    let member = TransientMockMember<Int, Void, Int>()
     member.addStub(matching: { _ in true }, outcomes: [.producing { 1 }])
     member.addStub(matching: { $0 == 1 }, specificity: 1, outcomes: [.producing { 2 }, .producing { 3 }])
 
@@ -24,7 +24,7 @@ import Testing
 
 @Test func transientMemberSupportsNoncopyableArgumentsAndResults() throws {
     struct Token: ~Copyable { let value: Int }
-    let member = TransientMockMember<Token, Token>(name: "token")
+    let member = TransientMockMember<Token, Void, Token>(name: "token")
     member.addStub(matching: { _ in true }, outcomes: [.producing { Token(value: 7) }])
 
     let result = try member.invoke(Token(value: 1))
@@ -33,7 +33,7 @@ import Testing
 }
 
 @Test func transientMemberIsCountOnlyAndResetsByScope() throws {
-    let member = TransientMockMember<Int, Int>(name: "count")
+    let member = TransientMockMember<Int, Void, Int>(name: "count")
     var actions = 0
     member.addAction(matching: { _ in true }, action: { _ in actions += 1 })
     member.addStub(matching: { _ in true }, outcomes: [.producing { 8 }])
@@ -51,7 +51,7 @@ import Testing
 }
 
 @Test func transientCoupledVoidActionMatchesOnceAndResetsByScope() throws {
-    let member = TransientMockMember<Int, Void>()
+    let member = TransientMockMember<Int, Void, Void>()
     var matches = 0
     var actions = 0
     member.addAction(
@@ -75,7 +75,7 @@ import Testing
 }
 
 @Test func transientCallbacksCanReenterChannel() throws {
-    let member = TransientMockMember<Int, Int>()
+    let member = TransientMockMember<Int, Void, Int>()
     member.addAction(
         matching: { _ in member.verification(count: 1).success },
         outcomes: [.producing { member.verification(count: 1).success ? 7 : 0 }],
@@ -88,7 +88,7 @@ import Testing
 
 @Test func transientMemberDoesNotRetainInvocations() throws {
     final class Probe {}
-    let member = TransientMockMember<Probe, Void>()
+    let member = TransientMockMember<Probe, Void, Void>()
     member.addStub(matching: { _ in true }, outcomes: [.producing { () }])
     weak var retained: Probe?
     do {
@@ -101,7 +101,7 @@ import Testing
 
 @Test func transientMemberRepeatsFinalThrownOutcome() throws {
     enum Failure: Error { case expected }
-    let member = TransientMockMember<Void, Int>()
+    let member = TransientMockMember<Void, Void, Int>()
     member.addStub(matching: { _ in true }, outcomes: [.producing { 1 }, .throwing(Failure.expected)])
 
     #expect(try member.invoke(()) == 1)
@@ -111,7 +111,7 @@ import Testing
 
 @Test func transientRegistrationAppendsProducedAndThrownOutcomes() throws {
     enum Failure: Error { case expected }
-    let member = TransientMockMember<Void, Int>()
+    let member = TransientMockMember<Void, Void, Int>()
     let registration = member.addStub(matching: { _ in true }, outcomes: [.producing { 1 }])
     registration.append([.throwing(Failure.expected), .producing { 3 }])
 
@@ -120,12 +120,76 @@ import Testing
     #expect(try member.invoke(()) == 3)
 }
 
+@Test func transientThrowingVoidBuilderBuildsMixedSequence() throws {
+    enum Failure: Error { case expected }
+    typealias Answer = (Int) throws -> Void
+    let member = TransientMockMember<Int, Void, Void>()
+    var answered = 0
+    let builder = _Mock4SwiftThrowingProduceVoidStub<Int, Void, Failure, Answer>(
+        apply: { member.addStub(matching: { _ in true }, outcomes: $0) },
+        answer: { answer in .answering { arguments, _ in try answer(arguments) } }
+    )
+    builder.willSucceed()
+        .thenThrow(.expected)
+        .thenAnswer { answered = $0 }
+
+    try member.invoke(1)
+    #expect(throws: Failure.expected) { try member.invoke(2) }
+    try member.invoke(3)
+    #expect(answered == 3)
+}
+
+@Test func transientAsyncThrowingVoidBuilderBuildsMixedSequence() async throws {
+    enum Failure: Error { case expected }
+    typealias Answer = (Int) async throws -> Void
+    let member = TransientMockMember<Int, Void, Void>()
+    var answered = 0
+    let builder = _Mock4SwiftThrowingProduceVoidStub<Int, Void, Failure, Answer>(
+        apply: { member.addStub(matching: { _ in true }, outcomes: $0) },
+        answer: { answer in .answering { arguments in try await answer(arguments) } }
+    )
+    builder.willSucceed()
+        .thenThrow(.expected)
+        .thenAnswer { answered = $0 }
+
+    try await member.invokeAsync(1)
+    await #expect(throws: Failure.expected) { try await member.invokeAsync(2) }
+    try await member.invokeAsync(3)
+    #expect(answered == 3)
+}
+
+@Test func transientAnswerBorrowsArgumentsAndEphemeralValues() throws {
+    struct Token: ~Copyable { let value: Int }
+    let member = TransientMockMember<Token, Int, Int>()
+    member.addStub(
+        matching: { $0.value > 0 },
+        outcomes: [.answering { arguments, multiplier in arguments.value * multiplier }]
+    )
+
+    #expect(try member.invoke(Token(value: 3), ephemeral: 4) == 12)
+    #expect(try member.invoke(Token(value: 2), ephemeral: 5) == 10)
+}
+
+@Test func transientAsyncAnswerUsesBorrowedArguments() async throws {
+    struct Token: ~Copyable { let value: Int }
+    let member = TransientMockMember<Token, Void, Int>()
+    member.addStub(
+        matching: { _ in true },
+        outcomes: [.answering { arguments async in
+            await Task.yield()
+            return arguments.value * 2
+        }]
+    )
+
+    #expect(try await member.invokeAsync(Token(value: 3)) == 6)
+}
+
 @Test func transientRegistriesSeparateSpecializationsAndReset() throws {
     enum Owner {}
     let staticRegistry = StaticMockRegistry()
     let genericRegistry = GenericMockRegistry()
-    let strings: TransientMockMember<String, String> = staticRegistry.member(owner: Owner.self, key: "echo", types: [String.self]) { .init(name: "echo") }
-    let integers: TransientMockMember<Int, Int> = genericRegistry.member(key: "echo", types: [Int.self]) { .init(name: "echo") }
+    let strings: TransientMockMember<String, Void, String> = staticRegistry.member(owner: Owner.self, key: "echo", types: [String.self]) { .init(name: "echo") }
+    let integers: TransientMockMember<Int, Void, Int> = genericRegistry.member(key: "echo", types: [Int.self]) { .init(name: "echo") }
     strings.addStub(matching: { _ in true }, outcomes: [.producing { "text" }])
     integers.addStub(matching: { _ in true }, outcomes: [.producing { 1 }])
 
@@ -142,7 +206,7 @@ import Testing
     struct Second: ~Copyable {}
     let registry = GenericMockRegistry()
 
-    func member<Value: ~Copyable>(for _: Value.Type) -> TransientMockMember<Value, Int> {
+    func member<Value: ~Copyable>(for _: Value.Type) -> TransientMockMember<Value, Void, Int> {
         registry.member(key: "generic", typeIDs: [ObjectIdentifier(Value.self)]) { .init(name: "generic") }
     }
 
@@ -159,7 +223,7 @@ import Testing
     let registry = StaticMockRegistry()
     weak var retained: AnyObject?
     do {
-        let member: TransientMockMember<Int, Int> = registry.member(owner: Owner.self, key: "value") { .init() }
+        let member: TransientMockMember<Int, Void, Int> = registry.member(owner: Owner.self, key: "value") { .init() }
         retained = member
     }
     registry.remove(owner: Owner.self, key: "value")
@@ -167,7 +231,7 @@ import Testing
 }
 
 @Test func transientMemberSupportsConcurrentCalls() async throws {
-    let member = TransientMockMember<Int, Int>()
+    let member = TransientMockMember<Int, Void, Int>()
     member.addStub(matching: { _ in true }, outcomes: [.producing { 1 }])
 
     try await withThrowingTaskGroup(of: Int.self) { group in
@@ -182,7 +246,7 @@ import Testing
 }
 
 @Test func transientMemberSupportsConcurrentConfiguration() async throws {
-    let member = TransientMockMember<Int, Int>()
+    let member = TransientMockMember<Int, Void, Int>()
     await withTaskGroup(of: Void.self) { group in
         for value in 0 ..< 100 {
             group.addTask {
@@ -195,27 +259,29 @@ import Testing
     }
 }
 
-@Test func ephemeralDispatcherForwardsNonescapingClosureWithoutRecordingOrRetainingIt() {
+@Test func memberForwardsNonescapingClosureWithoutRecordingOrRetainingIt() {
     protocol Service { func call(id: Int, completion: () -> Void) -> Int }
     final class ServiceMock: Service {
-        let member = MockMember<Int, Int>(name: "call")
-        let dispatcher = EphemeralActionDispatcher<Int, () -> Void>()
+        let member = MockMember<Int, () -> Void, Int>(name: "call")
 
         func call(id: Int, completion: () -> Void) -> Int {
             withoutActuallyEscaping(completion) {
-                dispatcher.dispatch(id, ephemeral: $0)
+                try! member.invoke(id, ephemeral: $0)
             }
-            return try! member.invoke(id)
         }
     }
     final class Probe {}
 
     let mock = ServiceMock()
-    mock.member.addStub(matching: { $0 == 1 }, specificity: 1, outcomes: [.returning(7)])
+    mock.member.addStub(
+        matching: { $0 == 1 },
+        specificity: 1,
+        outcomes: [.answering { _, completion in completion(); return 7 }]
+    )
     var selected: [Int] = []
-    mock.dispatcher.addAction(matching: { _ in true }) { _, completion in selected.append(1); completion() }
-    mock.dispatcher.addAction(matching: { $0 == 1 }, specificity: 1) { _, completion in selected.append(2); completion() }
-    mock.dispatcher.addAction(matching: { $0 == 1 }, specificity: 1) { _, completion in selected.append(3); completion() }
+    mock.member.addAction(matching: { _ in true }) { _, _ in selected.append(1) }
+    mock.member.addAction(matching: { $0 == 1 }, specificity: 1) { _, _ in selected.append(2) }
+    mock.member.addAction(matching: { $0 == 1 }, specificity: 1) { _, _ in selected.append(3) }
 
     weak var retained: Probe?
     do {
@@ -227,41 +293,7 @@ import Testing
     #expect(retained == nil)
     #expect(mock.member.verification(matching: { $0 == 1 }, count: 1).success)
 
-    mock.dispatcher.reset([.invocations])
-    mock.dispatcher.dispatch(1, ephemeral: {})
-    #expect(selected == [3, 3])
-    mock.dispatcher.reset([.actions])
-    mock.dispatcher.dispatch(1, ephemeral: {})
-    #expect(selected == [3, 3])
-}
-
-@Test func ephemeralDispatcherRegistriesSeparateSpecializationsAndReset() {
-    enum Owner {}
-    let staticRegistry = StaticMockRegistry()
-    let genericRegistry = GenericMockRegistry()
-    let strings: EphemeralActionDispatcher<Void, () -> Void> = staticRegistry.member(
-        owner: Owner.self, key: "callback", types: [String.self]
-    ) { .init() }
-    let integers: EphemeralActionDispatcher<Void, () -> Void> = staticRegistry.member(
-        owner: Owner.self, key: "callback", types: [Int.self]
-    ) { .init() }
-    let generic: EphemeralActionDispatcher<Int, () -> Void> = genericRegistry.member(
-        key: "callback", types: [Double.self]
-    ) { .init() }
-    var values: [String] = []
-    strings.addAction(matching: { _ in true }) { _, _ in values.append("string") }
-    integers.addAction(matching: { _ in true }) { _, _ in values.append("integer") }
-    generic.addAction(matching: { $0 == 1 }) { _, _ in values.append("generic") }
-
-    strings.dispatch((), ephemeral: {})
-    integers.dispatch((), ephemeral: {})
-    generic.dispatch(1, ephemeral: {})
-    #expect(values == ["string", "integer", "generic"])
-
-    staticRegistry.reset(owner: Owner.self, scopes: [.actions])
-    genericRegistry.reset([.actions])
-    strings.dispatch((), ephemeral: {})
-    integers.dispatch((), ephemeral: {})
-    generic.dispatch(1, ephemeral: {})
-    #expect(values == ["string", "integer", "generic"])
+    mock.member.reset([.actions])
+    #expect(mock.call(id: 1) {} == 7)
+    #expect(selected == [3])
 }

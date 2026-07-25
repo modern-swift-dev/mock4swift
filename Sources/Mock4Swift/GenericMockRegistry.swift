@@ -34,23 +34,23 @@ public final class GenericMockRegistry: @unchecked Sendable {
         releases.forEach { $0() }
     }
 
-    public func member<Arguments, Output>(
+    public func member<Arguments, Ephemeral, Output>(
         key: String,
         types: [Any.Type],
-        make: () -> MockMember<Arguments, Output>
-    ) -> MockMember<Arguments, Output> {
+        make: () -> MockMember<Arguments, Ephemeral, Output>
+    ) -> MockMember<Arguments, Ephemeral, Output> {
         member(key: key, typeIDs: types.map(ObjectIdentifier.init), make: make)
     }
 
-    public func member<Arguments, Output>(
+    public func member<Arguments, Ephemeral, Output>(
         key: String,
         typeIDs: [ObjectIdentifier],
-        make: () -> MockMember<Arguments, Output>
-    ) -> MockMember<Arguments, Output> {
+        make: () -> MockMember<Arguments, Ephemeral, Output>
+    ) -> MockMember<Arguments, Ephemeral, Output> {
         let lookup = Key(key: key, types: typeIDs)
         precondition(lock.withLock { transientEntries[lookup] == nil }, "Generic mock member type changed for \(key)")
         if let existing = lock.withLock({ entries[lookup] }) {
-            guard let member = existing.value as? MockMember<Arguments, Output> else {
+            guard let member = existing.value as? MockMember<Arguments, Ephemeral, Output> else {
                 preconditionFailure("Generic mock member type changed for \(key)")
             }
             return member
@@ -60,7 +60,7 @@ public final class GenericMockRegistry: @unchecked Sendable {
         return lock.withLock {
             precondition(transientEntries[lookup] == nil, "Generic mock member type changed for \(key)")
             if let existing = entries[lookup] {
-                guard let member = existing.value as? MockMember<Arguments, Output> else {
+                guard let member = existing.value as? MockMember<Arguments, Ephemeral, Output> else {
                     preconditionFailure("Generic mock member type changed for \(key)")
                 }
                 return member
@@ -74,27 +74,27 @@ public final class GenericMockRegistry: @unchecked Sendable {
         }
     }
 
-    public func member<Arguments: ~Copyable, Output: ~Copyable>(
+    public func member<Arguments: ~Copyable, Ephemeral: ~Copyable, Output: ~Copyable>(
         key: String,
         types: [Any.Type],
-        make: () -> TransientMockMember<Arguments, Output>
-    ) -> TransientMockMember<Arguments, Output> {
+        make: () -> TransientMockMember<Arguments, Ephemeral, Output>
+    ) -> TransientMockMember<Arguments, Ephemeral, Output> {
         member(key: key, typeIDs: types.map(ObjectIdentifier.init), make: make)
     }
 
-    public func member<Arguments: ~Copyable, Output: ~Copyable>(
+    public func member<Arguments: ~Copyable, Ephemeral: ~Copyable, Output: ~Copyable>(
         key: String,
         typeIDs: [ObjectIdentifier],
-        make: () -> TransientMockMember<Arguments, Output>
-    ) -> TransientMockMember<Arguments, Output> {
+        make: () -> TransientMockMember<Arguments, Ephemeral, Output>
+    ) -> TransientMockMember<Arguments, Ephemeral, Output> {
         let lookup = Key(key: key, types: typeIDs)
-        let type = ObjectIdentifier(TransientMockMember<Arguments, Output>.self)
+        let type = ObjectIdentifier(TransientMockMember<Arguments, Ephemeral, Output>.self)
         precondition(lock.withLock { entries[lookup] == nil }, "Generic mock member type changed for \(key)")
         if let existing = lock.withLock({ transientEntries[lookup] }) {
             guard existing.type == type else {
                 preconditionFailure("Generic mock member type changed for \(key)")
             }
-            return Unmanaged<TransientMockMember<Arguments, Output>>.fromOpaque(existing.pointer).takeUnretainedValue()
+            return Unmanaged<TransientMockMember<Arguments, Ephemeral, Output>>.fromOpaque(existing.pointer).takeUnretainedValue()
         }
 
         let candidate = make()
@@ -104,7 +104,7 @@ public final class GenericMockRegistry: @unchecked Sendable {
                 guard existing.type == type else {
                     preconditionFailure("Generic mock member type changed for \(key)")
                 }
-                return Unmanaged<TransientMockMember<Arguments, Output>>.fromOpaque(existing.pointer).takeUnretainedValue()
+                return Unmanaged<TransientMockMember<Arguments, Ephemeral, Output>>.fromOpaque(existing.pointer).takeUnretainedValue()
             }
             let retained = Unmanaged.passRetained(candidate)
             transientEntries[lookup] = TransientEntry(
@@ -113,46 +113,6 @@ public final class GenericMockRegistry: @unchecked Sendable {
                 reset: candidate.reset,
                 invocations: { candidate.orderedInvocations },
                 release: retained.release
-            )
-            return candidate
-        }
-    }
-
-    public func member<Arguments, Ephemeral>(
-        key: String,
-        types: [Any.Type],
-        make: () -> EphemeralActionDispatcher<Arguments, Ephemeral>
-    ) -> EphemeralActionDispatcher<Arguments, Ephemeral> {
-        member(key: key, typeIDs: types.map(ObjectIdentifier.init), make: make)
-    }
-
-    public func member<Arguments, Ephemeral>(
-        key: String,
-        typeIDs: [ObjectIdentifier],
-        make: () -> EphemeralActionDispatcher<Arguments, Ephemeral>
-    ) -> EphemeralActionDispatcher<Arguments, Ephemeral> {
-        let lookup = Key(key: key, types: typeIDs)
-        precondition(lock.withLock { transientEntries[lookup] == nil }, "Generic mock member type changed for \(key)")
-        if let existing = lock.withLock({ entries[lookup] }) {
-            guard let dispatcher = existing.value as? EphemeralActionDispatcher<Arguments, Ephemeral> else {
-                preconditionFailure("Generic mock member type changed for \(key)")
-            }
-            return dispatcher
-        }
-
-        let candidate = make()
-        return lock.withLock {
-            precondition(transientEntries[lookup] == nil, "Generic mock member type changed for \(key)")
-            if let existing = entries[lookup] {
-                guard let dispatcher = existing.value as? EphemeralActionDispatcher<Arguments, Ephemeral> else {
-                    preconditionFailure("Generic mock member type changed for \(key)")
-                }
-                return dispatcher
-            }
-            entries[lookup] = Entry(
-                value: candidate,
-                reset: candidate.reset,
-                invocations: { [] }
             )
             return candidate
         }

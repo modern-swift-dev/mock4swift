@@ -1,18 +1,22 @@
 import Foundation
 
 /// Thread-safe, count-only runtime channel for transient arguments and results.
-public final class TransientMockMember<Arguments: ~Copyable, Output: ~Copyable>: @unchecked Sendable {
+public final class TransientMockMember<
+    Arguments: ~Copyable,
+    Ephemeral: ~Copyable,
+    Output: ~Copyable
+>: @unchecked Sendable {
     private struct Stub {
         let id: UInt64
         let matches: (borrowing Arguments) -> Bool
         let specificity: Int
-        var outcomes: [TransientStubOutcome<Output>]
+        var outcomes: [TransientStubOutcome<Arguments, Ephemeral, Output>]
     }
 
     private struct Action {
         let id: UInt64
         let matches: (borrowing Arguments) -> Bool
-        let body: (borrowing Arguments) -> Void
+        let body: (borrowing Arguments, borrowing Ephemeral) -> Void
         let specificity: Int
     }
 
@@ -20,8 +24,8 @@ public final class TransientMockMember<Arguments: ~Copyable, Output: ~Copyable>:
         let id: UInt64
         let matches: (borrowing Arguments) -> Bool
         let specificity: Int
-        let outcomes: [TransientStubOutcome<Output>]
-        let body: (borrowing Arguments) -> Void
+        let outcomes: [TransientStubOutcome<Arguments, Ephemeral, Output>]
+        let body: (borrowing Arguments, borrowing Ephemeral) -> Void
         var actionEnabled = true
         var stubEnabled = true
     }
@@ -43,8 +47,8 @@ public final class TransientMockMember<Arguments: ~Copyable, Output: ~Copyable>:
     public func addStub(
         matching: @escaping (borrowing Arguments) -> Bool,
         specificity: Int = 0,
-        outcomes: [TransientStubOutcome<Output>]
-    ) -> _Mock4SwiftTransientStubRegistration<Output> {
+        outcomes: [TransientStubOutcome<Arguments, Ephemeral, Output>]
+    ) -> _Mock4SwiftTransientStubRegistration<Arguments, Ephemeral, Output> {
         precondition(!outcomes.isEmpty, "Mock stubs need at least one outcome")
         let id = lock.withLock {
             nextID += 1
@@ -64,7 +68,7 @@ public final class TransientMockMember<Arguments: ~Copyable, Output: ~Copyable>:
     public func addAction(
         matching: @escaping (borrowing Arguments) -> Bool,
         specificity: Int = 0,
-        action: @escaping (borrowing Arguments) -> Void
+        action: @escaping (borrowing Arguments, borrowing Ephemeral) -> Void
     ) {
         lock.withLock {
             nextID += 1
@@ -75,8 +79,18 @@ public final class TransientMockMember<Arguments: ~Copyable, Output: ~Copyable>:
     public func addAction(
         matching: @escaping (borrowing Arguments) -> Bool,
         specificity: Int = 0,
-        outcomes: [TransientStubOutcome<Output>],
         action: @escaping (borrowing Arguments) -> Void
+    ) where Ephemeral == Void {
+        addAction(matching: matching, specificity: specificity) { arguments, _ in
+            action(arguments)
+        }
+    }
+
+    public func addAction(
+        matching: @escaping (borrowing Arguments) -> Bool,
+        specificity: Int = 0,
+        outcomes: [TransientStubOutcome<Arguments, Ephemeral, Output>],
+        action: @escaping (borrowing Arguments, borrowing Ephemeral) -> Void
     ) {
         precondition(!outcomes.isEmpty, "Mock stubs need at least one outcome")
         lock.withLock {
@@ -93,7 +107,18 @@ public final class TransientMockMember<Arguments: ~Copyable, Output: ~Copyable>:
         }
     }
 
-    public func invoke(_ arguments: borrowing Arguments) throws -> Output {
+    public func addAction(
+        matching: @escaping (borrowing Arguments) -> Bool,
+        specificity: Int = 0,
+        outcomes: [TransientStubOutcome<Arguments, Ephemeral, Output>],
+        action: @escaping (borrowing Arguments) -> Void
+    ) where Ephemeral == Void {
+        addAction(matching: matching, specificity: specificity, outcomes: outcomes) { arguments, _ in
+            action(arguments)
+        }
+    }
+
+    public func invoke(_ arguments: borrowing Arguments, ephemeral: borrowing Ephemeral) throws -> Output {
         let sequence = nextMockInvocationSequence()
         let snapshot = lock.withLock { () -> ([Action], [Stub], [ActionStub]) in
             invocations.append(sequence)
@@ -104,14 +129,14 @@ public final class TransientMockMember<Arguments: ~Copyable, Output: ~Copyable>:
         let action = bestAction(in: snapshot.0, arguments: arguments)
         let actionStub = bestActionStub(in: matchingActionStubs, forAction: true)
         if let actionStub, action.map({ wins(actionStub.specificity, actionStub.id, over: $0.specificity, $0.id) }) ?? true {
-            actionStub.body(arguments)
+            actionStub.body(arguments, ephemeral)
         } else {
-            action?.body(arguments)
+            action?.body(arguments, ephemeral)
         }
 
         let stub = bestStub(in: snapshot.1, arguments: arguments)
         let actionStubOutcome = bestActionStub(in: matchingActionStubs, forAction: false)
-        let selected: (id: UInt64, outcomes: [TransientStubOutcome<Output>])? = if let actionStubOutcome, stub.map({ wins(
+        let selected: (id: UInt64, outcomes: [TransientStubOutcome<Arguments, Ephemeral, Output>])? = if let actionStubOutcome, stub.map({ wins(
             actionStubOutcome.specificity,
             actionStubOutcome.id,
             over: $0.specificity,
@@ -129,7 +154,65 @@ public final class TransientMockMember<Arguments: ~Copyable, Output: ~Copyable>:
         switch consumeOutcome(id: selected.id, outcomes: selected.outcomes) {
             case let .produce(producer): return producer()
             case let .throwError(error): throw error
+            case let .answer(answer): return try answer(arguments, ephemeral)
+            case .asyncAnswer:
+                preconditionFailure("Async mock answer requires async invocation")
         }
+    }
+
+    public func invoke(_ arguments: borrowing Arguments) throws -> Output where Ephemeral == Void {
+        try invoke(arguments, ephemeral: ())
+    }
+
+    public func invokeAsync(
+        _ arguments: borrowing Arguments,
+        ephemeral: borrowing Ephemeral
+    ) async throws -> Output {
+        let sequence = nextMockInvocationSequence()
+        let snapshot = lock.withLock { () -> ([Action], [Stub], [ActionStub]) in
+            invocations.append(sequence)
+            return (actions, stubs, actionStubs)
+        }
+
+        let matchingActionStubs = snapshot.2.filter { $0.matches(arguments) }
+        let action = bestAction(in: snapshot.0, arguments: arguments)
+        let actionStub = bestActionStub(in: matchingActionStubs, forAction: true)
+        if let actionStub, action.map({ wins(actionStub.specificity, actionStub.id, over: $0.specificity, $0.id) }) ?? true {
+            actionStub.body(arguments, ephemeral)
+        } else {
+            action?.body(arguments, ephemeral)
+        }
+
+        let stub = bestStub(in: snapshot.1, arguments: arguments)
+        let actionStubOutcome = bestActionStub(in: matchingActionStubs, forAction: false)
+        let selected: (
+            id: UInt64,
+            outcomes: [TransientStubOutcome<Arguments, Ephemeral, Output>]
+        )? = if let actionStubOutcome, stub.map({ wins(
+            actionStubOutcome.specificity,
+            actionStubOutcome.id,
+            over: $0.specificity,
+            $0.id
+        ) }) ?? true {
+            (actionStubOutcome.id, actionStubOutcome.outcomes)
+        } else if let stub {
+            (stub.id, stub.outcomes)
+        } else {
+            nil
+        }
+        guard let selected else {
+            throw MockError.unstubbed(name)
+        }
+        switch consumeOutcome(id: selected.id, outcomes: selected.outcomes) {
+            case let .produce(producer): return producer()
+            case let .throwError(error): throw error
+            case let .answer(answer): return try answer(arguments, ephemeral)
+            case let .asyncAnswer(answer): return try await answer(arguments)
+        }
+    }
+
+    public func invokeAsync(_ arguments: borrowing Arguments) async throws -> Output where Ephemeral == Void {
+        try await invokeAsync(arguments, ephemeral: ())
     }
 
     public func record() {
@@ -223,7 +306,10 @@ public final class TransientMockMember<Arguments: ~Copyable, Output: ~Copyable>:
         specificity > otherSpecificity || (specificity == otherSpecificity && id > otherID)
     }
 
-    private func consumeOutcome(id: UInt64, outcomes: [TransientStubOutcome<Output>]) -> TransientStubOutcome<Output> {
+    private func consumeOutcome(
+        id: UInt64,
+        outcomes: [TransientStubOutcome<Arguments, Ephemeral, Output>]
+    ) -> TransientStubOutcome<Arguments, Ephemeral, Output> {
         lock.withLock {
             let index = min(nextOutcome[id, default: 0], outcomes.count - 1)
             nextOutcome[id] = index + 1

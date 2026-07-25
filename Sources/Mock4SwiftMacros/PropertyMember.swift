@@ -124,7 +124,7 @@ struct PropertyMember {
     }
 
     var channelType: String {
-        "\(isTransient ? "TransientMockMember" : "MockMember")<\(argumentsType), \(outputType)>"
+        "\(isTransient ? "TransientMockMember" : "MockMember")<\(argumentsType), Void, \(outputType)>"
     }
 
     var channelConstructor: String {
@@ -163,7 +163,7 @@ struct PropertyMember {
         guard kind == .get else {
             return ""
         }
-        let call = "try \(witnessChannelReference).invoke(())"
+        let call = "try \(isAsync ? "await " : "")\(witnessChannelReference).\(isAsync ? "invokeAsync" : "invoke")(())"
         let getterBody = if let typedError {
             "\(witnessRegistryResolution)do { return \(call) }\n            catch let error as \(typedError) { throw error }\n            catch { preconditionFailure(\"Invalid or unstubbed typed-throws member \(name).get: \\(error)\") }"
         } else if isThrowing {
@@ -175,7 +175,7 @@ struct PropertyMember {
         let setterChannel = usesRegistry ? "member" : "_mock_\(name)_set_\(index)"
         let setterResolution: String
         if usesRegistry {
-            let setterType = "\(isTransient ? "TransientMockMember" : "MockMember")<\(type), Void>"
+            let setterType = "\(isTransient ? "TransientMockMember" : "MockMember")<\(type), Void, Void>"
             if isStatic {
                 setterResolution =
                     "let member: \(setterType) = StaticMockRegistry.shared.member(owner: Self.self, key: \"_mock_\(name)_set_\(index)\", types: []) { \(setterType)(name: \"\(name).set\") }\n            "
@@ -202,83 +202,38 @@ struct PropertyMember {
                         return declaration("var \(name): Void", body: success)
                     }
                     let errorType = typedError ?? "any Error"
-                    let handle = "_Mock4SwiftThrowingVoidStub<\(errorType)>"
-                    let errorOutcome = isTransient
-                        ? "errors.map(TransientStubOutcome<\(type)>.throwing)"
-                        : "errors.map(StubOutcome.throwError)"
-                    let successAppend = isTransient
-                        ? "registration.append([.producing { () }])"
-                        : "registration.append([.returnValue(())])"
-                    let sequence = """
-                    _Mock4SwiftThrowingVoidSequence(
-                                            thenSucceed: { \(successAppend) },
-                                            thenThrow: { errors in registration.append(\(errorOutcome)) }
-                                        )
-                    """
+                    let prefix = isTransient
+                        ? "_Mock4SwiftThrowingProduceVoidStub"
+                        : "_Mock4SwiftThrowingVoidStub"
+                    let handle = "\(prefix)<Void, Void, \(errorType), Never>"
                     return declaration(
                         "var \(name): \(handle)",
                         body: """
                         \(success)
                         return \(handle)(
-                            willSucceed: {
-                                \(registryResolution)let registration = \(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: \(successOutcome))
-                                return \(sequence)
+                            apply: { outcomes in
+                                \(registryResolution)return \(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: outcomes)
                             },
-                            willThrow: { errors in
-                                \(registryResolution)let registration = \(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: \(errorOutcome))
-                                return \(sequence)
-                            }
+                            answer: _mock4SwiftNoAnswer
                         )
                         """
                     )
                 }
-                if isTransient {
-                    let produceBody = "\(registryResolution)\(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: producers.map(TransientStubOutcome<\(type)>.producing))"
-                    guard isThrowing else {
-                        let handle = "_Mock4SwiftProduceStub<\(type)>"
-                        return declaration(
-                            "var \(name): \(handle)",
-                            body: "return \(handle) { producers in\n                \(produceBody)\n            }"
-                        )
-                    }
-                    let errorType = typedError ?? "any Error"
-                    let handle = "_Mock4SwiftThrowingProduceStub<\(type), \(errorType)>"
-                    let throwingProduceBody = "\(registryResolution)return \(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: producers.map(TransientStubOutcome<\(type)>.producing))"
-                    return declaration(
-                        "var \(name): \(handle)",
-                        body: """
-                        return \(handle)(
-                            willProduce: { producers in
-                                \(throwingProduceBody)
-                            },
-                            willThrow: { errors in
-                                \(registryResolution)return \(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: errors.map(TransientStubOutcome<\(type)>.throwing))
-                            }
-                        )
-                        """
-                    )
+                let typeName: String = if isTransient {
+                    isThrowing ? "_Mock4SwiftThrowingProduceStub" : "_Mock4SwiftProduceStub"
+                } else {
+                    isThrowing ? "_Mock4SwiftThrowingReturnStub" : "_Mock4SwiftReturnStub"
                 }
-                let returnBody = "\(registryResolution)\(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: values.map(StubOutcome.returnValue))"
-                guard isThrowing else {
-                    let handle = "_Mock4SwiftReturnStub<\(type)>"
-                    return declaration(
-                        "var \(name): \(handle)",
-                        body: "return \(handle) { values in\n                \(returnBody)\n            }"
-                    )
-                }
-                let errorType = typedError ?? "any Error"
-                let handle = "_Mock4SwiftThrowingReturnStub<\(type), \(errorType)>"
-                let throwingReturnBody = "\(registryResolution)return \(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: values.map(StubOutcome.returnValue))"
+                let genericTypes = ["Void", "Void", type] + (isThrowing ? [typedError ?? "any Error"] : []) + ["Never"]
+                let handle = "\(typeName)<\(genericTypes.joined(separator: ", "))>"
                 return declaration(
                     "var \(name): \(handle)",
                     body: """
                     return \(handle)(
-                        willReturn: { values in
-                            \(throwingReturnBody)
+                        apply: { outcomes in
+                            \(registryResolution)return \(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: outcomes)
                         },
-                        willThrow: { errors in
-                            \(registryResolution)return \(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: errors.map(StubOutcome.throwError))
-                        }
+                        answer: _mock4SwiftNoAnswer
                     )
                     """
                 )

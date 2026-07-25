@@ -31,7 +31,12 @@ enum GeneratedMember {
     }
 
     var channelType: String {
-        "\(isTransient ? "TransientMockMember" : "MockMember")<\(argumentsType), \(outputType)>"
+        let ephemeral = if case let .function(value) = self {
+            value.ephemeralArgumentsType
+        } else {
+            "Void"
+        }
+        return "\(isTransient ? "TransientMockMember" : "MockMember")<\(argumentsType), \(ephemeral), \(outputType)>"
     }
 
     var channelConstructor: String {
@@ -68,23 +73,6 @@ enum GeneratedMember {
 
     var performFactory: String {
         switch self { case let .function(x): x.performFactory; case let .property(x): x.performFactory; case let .subscriptMember(x): x.performFactory }
-    }
-
-    var ephemeralChannelDeclaration: String? {
-        if case let .function(value) = self {
-            value.ephemeralChannelDeclaration
-        } else {
-            nil
-        }
-    }
-
-    var ephemeralReset: String? {
-        if case let .function(value) = self, value.hasEphemeralDispatcher,
-           !value.ephemeralUsesRegistry {
-            "        \(value.ephemeralChannelName).reset(scopes)"
-        } else {
-            nil
-        }
     }
 
     var argumentsStructDeclaration: String? {

@@ -64,6 +64,23 @@ Given(service).load(.any)
 
 Throwing `Void` members use `willSucceed`/`thenSucceed`; transient noncopyable members use `willProduce`/`thenProduce`. When registrations overlap, the matcher with the most non-`.any` parameters wins; the newest registration wins a tie.
 
+Answers compute each outcome from the current invocation arguments and can be mixed with fixed outcomes:
+
+```swift
+Given(service).lookup(.any)
+    .willAnswer { key in cache[key] }
+    .thenReturn(fallback)
+    .thenAnswer { key in refresh(key) }
+
+Given(service).fetch(.any).willAnswer { key in
+    await remote.fetch(key)
+}
+```
+
+Synchronous answers receive normal arguments plus any nonescaping callbacks. Async answers receive only recordable arguments, and execute outside the mock's lock. Throwing answers use Swift's `throws` closure type; typed-throws witnesses still reject errors outside their declared failure type. `willAnswer` is omitted for properties, argumentless and `rethrows` members, and parameter packs. Noncopyable answer arguments are borrowed.
+
+The runtime channel types now include ephemeral arguments: `MockMember<Arguments, Ephemeral, Output>` and `TransientMockMember<Arguments, Ephemeral, Output>`. Direct runtime users should pass `Void` when no nonescaping callback payload exists.
+
 ## Matching, capture, and reset
 
 `Parameter<Value>` provides `.any`, `.value(_:)` for equatable values, `.value(_:by:)`, `.matching(_:)`, `.sameInstance(_:)`, and `.capturing(_:)`:

@@ -183,7 +183,7 @@ struct SubscriptMember {
     }
 
     var channelType: String {
-        "\(isTransient ? "TransientMockMember" : "MockMember")<\(argumentsType), \(outputType)>"
+        "\(isTransient ? "TransientMockMember" : "MockMember")<\(argumentsType), Void, \(outputType)>"
     }
 
     var channelConstructor: String {
@@ -223,7 +223,7 @@ struct SubscriptMember {
             return nil
         }
         let fields = parameters.map { ($0.local, $0.type) } + (kind == .set ? [("newValue", valueType)] : [])
-        return "    private struct \(argumentsType): ~Copyable {\n" + fields.map { "        let \($0.0): \($0.1)" }.joined(separator: "\n") + "\n    }"
+        return "    \(access)struct \(argumentsType): ~Copyable {\n" + fields.map { "        let \($0.0): \($0.1)" }.joined(separator: "\n") + "\n    }"
     }
 
     var matcherDeclarations: String {
@@ -275,13 +275,38 @@ struct SubscriptMember {
         return "(" + fields.joined(separator: ", ") + ")"
     }
 
+    var answerType: String {
+        guard !parameters.contains(where: \.isPack) else {
+            return "Never"
+        }
+        let ownership = isTransient ? "borrowing " : ""
+        let effects = (isAsync ? " async" : "") + (isThrowing ? " throws" : "")
+        return "(" + parameters.map { ownership + $0.type }.joined(separator: ", ") + ")\(effects) -> \(valueType)"
+    }
+
+    var answerAdapter: String {
+        guard !parameters.contains(where: \.isPack) else {
+            return "_mock4SwiftNoAnswer"
+        }
+        let values: [String] = if parameters.count == 1, parameters[0].isPack {
+            ["repeat each arguments"]
+        } else if parameters.count == 1 {
+            ["arguments"]
+        } else {
+            parameters.map { "arguments.\($0.local)" }
+        }
+        let prefix = (isThrowing ? "try " : "") + (isAsync ? "await " : "")
+        let runtimeParameters = isAsync ? "arguments" : "arguments, _"
+        return "{ answer in .answering { \(runtimeParameters) in \(prefix)answer(\(values.joined(separator: ", "))) } }"
+    }
+
     var witness: String {
         guard kind == .get else {
             return ""
         }
         let generics = genericClause
         let whereClause = declaration.genericWhereClause.map { rewriteType($0.trimmedDescription, replacements: replacements, mockType: mockType) } ?? ""
-        let call = "try \(witnessChannelReference).invoke(\(invocationArguments))"
+        let call = "try \(isAsync ? "await " : "")\(witnessChannelReference).\(isAsync ? "invokeAsync" : "invoke")(\(invocationArguments))"
         let getterBody = if let typedError {
             "\(witnessRegistryResolution)do { return \(call) }\n            catch let error as \(typedError) { throw error }\n            catch { preconditionFailure(\"Invalid or unstubbed typed-throws member subscript.get: \\(error)\") }"
         } else if isThrowing {
@@ -332,84 +357,39 @@ struct SubscriptMember {
                         )
                     }
                     let errorType = typedError ?? "any Error"
-                    let handle = "_Mock4SwiftThrowingVoidStub<\(errorType)>"
-                    let errorOutcome = isTransient
-                        ? "errors.map(TransientStubOutcome<\(valueType)>.throwing)"
-                        : "errors.map(StubOutcome.throwError)"
-                    let successAppend = isTransient
-                        ? "registration.append([.producing { () }])"
-                        : "registration.append([.returnValue(())])"
-                    let sequence = """
-                    _Mock4SwiftThrowingVoidSequence(
-                                            thenSucceed: { \(successAppend) },
-                                            thenThrow: { errors in registration.append(\(errorOutcome)) }
-                                        )
-                    """
+                    let prefix = isTransient
+                        ? "_Mock4SwiftThrowingProduceVoidStub"
+                        : "_Mock4SwiftThrowingVoidStub"
+                    let handle = "\(prefix)<\(argumentsType), Void, \(errorType), Never>"
                     return declaration(
                         "func subscriptGet\(genericClause)(\(factoryArguments(matcherDeclarations, inferredFrom: handle))) -> \(handle)\(whereClause)",
                         body: """
                         \(success)
                         return \(handle)(
-                            willSucceed: {
-                                \(registryResolution)let registration = \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: \(successOutcome))
-                                return \(sequence)
+                            apply: { outcomes in
+                                \(registryResolution)return \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: outcomes)
                             },
-                            willThrow: { errors in
-                                \(registryResolution)let registration = \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: \(errorOutcome))
-                                return \(sequence)
-                            }
+                            answer: _mock4SwiftNoAnswer
                         )
                         """,
                         attribute: "@discardableResult"
                     )
                 }
-                if isTransient {
-                    let produceBody = "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: producers.map(TransientStubOutcome<\(valueType)>.producing))"
-                    guard isThrowing else {
-                        let handle = "_Mock4SwiftProduceStub<\(valueType)>"
-                        return declaration(
-                            "func subscriptGet\(genericClause)(\(factoryArguments(matcherDeclarations, inferredFrom: handle))) -> \(handle)\(whereClause)",
-                            body: "return \(handle) { producers in\n                \(produceBody)\n            }"
-                        )
-                    }
-                    let errorType = typedError ?? "any Error"
-                    let handle = "_Mock4SwiftThrowingProduceStub<\(valueType), \(errorType)>"
-                    let throwingProduceBody = "\(registryResolution)return \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: producers.map(TransientStubOutcome<\(valueType)>.producing))"
-                    return declaration(
-                        "func subscriptGet\(genericClause)(\(factoryArguments(matcherDeclarations, inferredFrom: handle))) -> \(handle)\(whereClause)",
-                        body: """
-                        return \(handle)(
-                            willProduce: { producers in
-                                \(throwingProduceBody)
-                            },
-                            willThrow: { errors in
-                                \(registryResolution)return \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: errors.map(TransientStubOutcome<\(valueType)>.throwing))
-                            }
-                        )
-                        """
-                    )
+                let typeName: String = if isTransient {
+                    isThrowing ? "_Mock4SwiftThrowingProduceStub" : "_Mock4SwiftProduceStub"
+                } else {
+                    isThrowing ? "_Mock4SwiftThrowingReturnStub" : "_Mock4SwiftReturnStub"
                 }
-                let returnBody = "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: values.map(StubOutcome.returnValue))"
-                guard isThrowing else {
-                    let handle = "_Mock4SwiftReturnStub<\(valueType)>"
-                    return declaration(
-                        "func subscriptGet\(genericClause)(\(factoryArguments(matcherDeclarations, inferredFrom: handle))) -> \(handle)\(whereClause)",
-                        body: "return \(handle) { values in\n                \(returnBody)\n            }"
-                    )
-                }
-                let errorType = typedError ?? "any Error"
-                let handle = "_Mock4SwiftThrowingReturnStub<\(valueType), \(errorType)>"
-                let throwingReturnBody = "\(registryResolution)return \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: values.map(StubOutcome.returnValue))"
+                let genericTypes = [argumentsType, "Void", valueType] + (isThrowing ? [typedError ?? "any Error"] : []) + [answerType]
+                let handle = "\(typeName)<\(genericTypes.joined(separator: ", "))>"
                 return declaration(
                     "func subscriptGet\(genericClause)(\(factoryArguments(matcherDeclarations, inferredFrom: handle))) -> \(handle)\(whereClause)",
                     body: """
                     return \(handle)(
-                        willReturn: { values in
-                            \(throwingReturnBody)
+                        apply: { outcomes in
+                            \(registryResolution)return \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: outcomes)
                         },
-                        willThrow: { errors in
-                            \(registryResolution)return \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: errors.map(StubOutcome.throwError))
-                        }
+                        answer: \(answerAdapter)
                     )
                     """
                 )

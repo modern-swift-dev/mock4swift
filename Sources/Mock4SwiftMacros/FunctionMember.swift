@@ -58,40 +58,14 @@ struct FunctionMember {
         !ephemeralParameters.isEmpty
     }
 
-    var ephemeralUsesRegistry: Bool {
-        usesRegistry || isStatic
-    }
-
-    var ephemeralChannelName: String {
-        channelName + "_ephemeral"
-    }
-
-    var ephemeralChannelDeclaration: String? {
-        guard hasEphemeralDispatcher, !ephemeralUsesRegistry else {
-            return nil
-        }
-        return "    private let \(ephemeralChannelName) = EphemeralActionDispatcher<\(argumentsType), \(ephemeralArgumentsType)>()"
-    }
-
     var ephemeralArgumentsType: String {
+        if ephemeralParameters.isEmpty {
+            return "Void"
+        }
         if ephemeralParameters.count == 1 {
             return ephemeralParameters[0].type
         }
         return "(" + ephemeralParameters.map { "\($0.local): \($0.type)" }.joined(separator: ", ") + ")"
-    }
-
-    var ephemeralType: String {
-        "EphemeralActionDispatcher<\(argumentsType), \(ephemeralArgumentsType)>"
-    }
-
-    func ephemeralRegistryResolution(owner: String, indentation: String) -> String {
-        guard hasEphemeralDispatcher, ephemeralUsesRegistry else {
-            return ""
-        }
-        if isStatic {
-            return "let dispatcher: \(ephemeralType) = StaticMockRegistry.shared.member(owner: \(owner), key: \"\(ephemeralChannelName)\", typeIDs: \(registryTypes)) { \(ephemeralType)() }\n\(indentation)"
-        }
-        return "let dispatcher: \(ephemeralType) = \(owner)._genericMockRegistry.member(key: \"\(ephemeralChannelName)\", typeIDs: \(registryTypes)) { \(ephemeralType)() }\n\(indentation)"
     }
 
     var argumentsType: String {
@@ -160,6 +134,10 @@ struct FunctionMember {
         (declaration.signature.effectSpecifiers?.trimmedDescription ?? "").contains("throws")
     }
 
+    var isAsync: Bool {
+        (declaration.signature.effectSpecifiers?.trimmedDescription ?? "").contains("async")
+    }
+
     var isTransient: Bool {
         hasAttribute(named: "MockNoncopyable", in: declaration.attributes) || declaration.trimmedDescription.contains("~Copyable")
     }
@@ -219,7 +197,7 @@ struct FunctionMember {
     }
 
     var channelType: String {
-        "\(isTransient ? "TransientMockMember" : "MockMember")<\(argumentsType), \(outputType)>"
+        "\(isTransient ? "TransientMockMember" : "MockMember")<\(argumentsType), \(ephemeralArgumentsType), \(outputType)>"
     }
 
     var channelConstructor: String {
@@ -234,7 +212,7 @@ struct FunctionMember {
         guard isTransient, parameters.count > 1 else {
             return nil
         }
-        return "    private struct \(argumentsType): ~Copyable {\n" + parameters.map { "        let \($0.local): \($0.type)" }.joined(separator: "\n") + "\n    }"
+        return "    \(access)struct \(argumentsType): ~Copyable {\n" + parameters.map { "        let \($0.local): \($0.type)" }.joined(separator: "\n") + "\n    }"
     }
 
     var typedError: String? {
@@ -296,6 +274,50 @@ struct FunctionMember {
         }
     }
 
+    var supportsAnswer: Bool {
+        guard outputType != "Void", !isRethrows, !parameters.contains(where: \.isPack) else {
+            return false
+        }
+        return isAsync ? !parameters.isEmpty : !parameters.isEmpty || !ephemeralParameters.isEmpty
+    }
+
+    var answerType: String {
+        guard supportsAnswer else {
+            return "Never"
+        }
+        let ownership = isTransient ? "borrowing " : ""
+        let types = parameters.map { ownership + $0.type } + (isAsync ? [] : ephemeralParameters.map(\.type))
+        let effects: String
+        if isAsync, isThrowing {
+            effects = " async throws"
+        } else if isAsync {
+            effects = " async"
+        } else if isThrowing {
+            effects = " throws"
+        } else {
+            effects = ""
+        }
+        return "(" + types.joined(separator: ", ") + ")\(effects) -> \(outputType)"
+    }
+
+    var answerAdapter: String {
+        guard supportsAnswer else {
+            return "_mock4SwiftNoAnswer"
+        }
+        let retained: [String] = switch parameters.count {
+            case 0: []
+            case 1 where parameters[0].isPack: ["repeat each arguments"]
+            case 1: ["arguments"]
+            default: parameters.map { "arguments.\($0.local)" }
+        }
+        let ephemeral = isAsync ? [] : ephemeralParameters.map {
+            ephemeralParameters.count == 1 ? "ephemeral" : "ephemeral.\($0.local)"
+        }
+        let prefix = (isThrowing ? "try " : "") + (isAsync ? "await " : "")
+        let runtimeParameters = isAsync ? "arguments" : "arguments, ephemeral"
+        return "{ answer in .answering { \(runtimeParameters) in \(prefix)answer(\((retained + ephemeral).joined(separator: ", "))) } }"
+    }
+
     var signaturePrefix: String {
         let modifiers = declaration.modifiers.compactMap { modifier -> String? in
             if ["mutating", "nonmutating", "optional"].contains(modifier.name.text) {
@@ -314,26 +336,22 @@ struct FunctionMember {
             }
         }
         let signature = "\(signaturePrefix)func \(declaration.name.trimmedDescription)\(genericClause)\(signatureText)\(whereClause)"
-        let invocation = "\(usesRegistry ? "member" : channelName).invoke(\(argumentsExpression))"
-        let ephemeralDispatch: String = {
-            guard hasEphemeralDispatcher else {
-                return ""
-            }
-            let resolution = ephemeralRegistryResolution(owner: isStatic ? "Self.self" : "self", indentation: "        ")
-            let dispatcher = ephemeralUsesRegistry ? "dispatcher" : ephemeralChannelName
-            let value = ephemeralParameters.count == 1 ? "_ephemeral0" : "(" + ephemeralParameters.enumerated().map { "\($0.element.local): _ephemeral\($0.offset)" }.joined(separator: ", ") + ")"
-            var dispatch = "\(dispatcher).dispatch(\(argumentsExpression), ephemeral: \(value))"
-            for (offset, parameter) in ephemeralParameters.enumerated().reversed() {
-                dispatch = "withoutActuallyEscaping(\(parameter.local)) { _ephemeral\(offset) in\n            \(dispatch)\n        }"
-            }
-            return "\(resolution)\(dispatch)\n        "
-        }()
+        let channel = usesRegistry ? "member" : channelName
+        let awaitPrefix = isAsync ? "await " : ""
+        let ephemeralValue = ephemeralParameters.count == 1
+            ? "_ephemeral0"
+            : "(" + ephemeralParameters.enumerated().map { "\($0.element.local): _ephemeral\($0.offset)" }.joined(separator: ", ") + ")"
+        let invokeName = isAsync ? "invokeAsync" : "invoke"
+        var invocation = "try \(awaitPrefix)\(channel).\(invokeName)(\(argumentsExpression)\(hasEphemeralDispatcher ? ", ephemeral: \(ephemeralValue)" : ""))"
+        for (offset, parameter) in ephemeralParameters.enumerated().reversed() {
+            invocation = "try \(awaitPrefix)withoutActuallyEscaping(\(parameter.local)) { _ephemeral\(offset) in \(invocation) }"
+        }
         let attributes = witnessAttributePrefix(declaration.attributes, indentation: "    ")
         if let typedError {
             return availabilityPrefix(indentation: "    ") + attributes + """
                 \(signature) {
-                    \(witnessRegistryResolution)\(ephemeralDispatch)\
-                    do { return try \(invocation) }
+                    \(witnessRegistryResolution)\
+                    do { return \(invocation) }
                     catch let error as \(typedError) { throw error }
                     catch { preconditionFailure("Invalid or unstubbed typed-throws member \(displayName): \\(error)") }
                 }
@@ -342,18 +360,18 @@ struct FunctionMember {
         if isRethrows {
             return availabilityPrefix(indentation: "    ") + attributes + """
                 \(signature) {
-                    \(witnessRegistryResolution)\(ephemeralDispatch)\
-                    do { return try \(invocation) }
+                    \(witnessRegistryResolution)\
+                    do { return \(invocation) }
                     catch { preconditionFailure("Invalid or unstubbed rethrows member \(displayName): \\(error)") }
                 }
             """.split(separator: "\n", omittingEmptySubsequences: false).map { "    " + $0 }.joined(separator: "\n")
         }
         if isThrowing {
-            return availabilityPrefix(indentation: "    ") + attributes + "    \(signature) {\n        \(witnessRegistryResolution)\(ephemeralDispatch)try \(invocation)\n    }"
+            return availabilityPrefix(indentation: "    ") + attributes + "    \(signature) {\n        \(witnessRegistryResolution)\(invocation)\n    }"
         }
         return availabilityPrefix(indentation: "    ") + attributes + """
             \(signature) {
-                \(witnessRegistryResolution)\(ephemeralDispatch)do { return try \(invocation) }
+                \(witnessRegistryResolution)do { return \(invocation) }
                 catch { preconditionFailure("Unstubbed nonthrowing member \(displayName): \\(error)") }
             }
         """.split(separator: "\n", omittingEmptySubsequences: false).map { "    " + $0 }.joined(separator: "\n")
@@ -370,84 +388,46 @@ struct FunctionMember {
                 )
             }
             let errorType = typedError ?? "any Error"
-            let handle = "_Mock4SwiftThrowingVoidStub<\(errorType)>"
-            let errorOutcome = isTransient
-                ? "errors.map(TransientStubOutcome<\(outputType)>.throwing)"
-                : "errors.map(StubOutcome.throwError)"
-            let successAppend = isTransient
-                ? "registration.append([.producing { () }])"
-                : "registration.append([.returnValue(())])"
-            let sequence = """
-            _Mock4SwiftThrowingVoidSequence(
-                                    thenSucceed: { \(successAppend) },
-                                    thenThrow: { errors in registration.append(\(errorOutcome)) }
-                                )
-            """
+            let prefix = isTransient
+                ? "_Mock4SwiftThrowingProduceVoidStub"
+                : "_Mock4SwiftThrowingVoidStub"
+            let handle = "\(prefix)<\(argumentsType), \(ephemeralArgumentsType), \(errorType), Never>"
             return method(
                 fluentSignature(arguments: matcherDeclarations, returning: handle, inferredFrom: handle),
                 body: """
                 \(success)
                 return \(handle)(
-                    willSucceed: {
-                        \(registryResolution)let registration = \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: \(successOutcome))
-                        return \(sequence)
+                    apply: { outcomes in
+                        \(registryResolution)return \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: outcomes)
                     },
-                    willThrow: { errors in
-                        \(registryResolution)let registration = \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: \(errorOutcome))
-                        return \(sequence)
-                    }
+                    answer: _mock4SwiftNoAnswer
                 )
                 """,
                 attribute: "@discardableResult"
             )
         }
-        if isTransient {
-            let produceBody = "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: producers.map(TransientStubOutcome<\(outputType)>.producing))"
-            guard isThrowing, !isRethrows else {
-                let handle = "_Mock4SwiftProduceStub<\(outputType)>"
-                return method(
-                    fluentSignature(arguments: matcherDeclarations, returning: handle, inferredFrom: handle),
-                    body: "return \(handle) { producers in\n                \(produceBody)\n            }"
-                )
-            }
-            let errorType = typedError ?? "any Error"
-            let handle = "_Mock4SwiftThrowingProduceStub<\(outputType), \(errorType)>"
-            let throwingProduceBody = "\(registryResolution)return \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: producers.map(TransientStubOutcome<\(outputType)>.producing))"
-            return method(
-                fluentSignature(arguments: matcherDeclarations, returning: handle, inferredFrom: handle),
-                body: """
-                return \(handle)(
-                    willProduce: { producers in
-                        \(throwingProduceBody)
-                    },
-                    willThrow: { errors in
-                        \(registryResolution)return \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: errors.map(TransientStubOutcome<\(outputType)>.throwing))
-                    }
-                )
-                """
-            )
+        let throwing = isThrowing && !isRethrows
+        let typeName: String = if isTransient {
+            throwing ? "_Mock4SwiftThrowingProduceStub" : "_Mock4SwiftProduceStub"
+        } else {
+            throwing ? "_Mock4SwiftThrowingReturnStub" : "_Mock4SwiftReturnStub"
         }
-        let returnBody = "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: values.map(StubOutcome.returnValue))"
-        guard isThrowing, !isRethrows else {
-            let handle = "_Mock4SwiftReturnStub<\(outputType)>"
-            return method(
-                fluentSignature(arguments: matcherDeclarations, returning: handle, inferredFrom: handle),
-                body: "return \(handle) { values in\n                \(returnBody)\n            }"
-            )
-        }
-        let errorType = typedError ?? "any Error"
-        let handle = "_Mock4SwiftThrowingReturnStub<\(outputType), \(errorType)>"
-        let throwingReturnBody = "\(registryResolution)return \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: values.map(StubOutcome.returnValue))"
+        let generics = [
+            argumentsType,
+            ephemeralArgumentsType,
+            outputType,
+            throwing ? (typedError ?? "any Error") : nil,
+            answerType
+        ].compactMap(\.self).joined(separator: ", ")
+        let handle = "\(typeName)<\(generics)>"
         return method(
             fluentSignature(arguments: matcherDeclarations, returning: handle, inferredFrom: handle),
             body: """
             return \(handle)(
-                willReturn: { values in
-                    \(throwingReturnBody)
+                apply: { outcomes in
+                    \(registryResolution)return \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: outcomes)
                 },
-                willThrow: { errors in
-                    \(registryResolution)return \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: errors.map(StubOutcome.throwError))
-                }
+                answer: \(answerAdapter)
             )
             """
         )
@@ -498,8 +478,6 @@ struct FunctionMember {
         }
         let body: String
         if hasEphemeralDispatcher {
-            let mainStub = outputType == "Void" ? "\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: [.returnValue(())])\n            " : ""
-            let mainResolution = outputType == "Void" ? registryResolution : registrySetup
             let recordableCall: String
             let ephemeralCalls = ephemeralParameters.map { ephemeralParameters.count == 1 ? "ephemeral" : "ephemeral.\($0.local)" }
             switch parameters.count {
@@ -507,9 +485,7 @@ struct FunctionMember {
                 case 1: recordableCall = "action(" + (["arguments"] + ephemeralCalls).joined(separator: ", ") + ")"
                 default: recordableCall = "action(" + (parameters.map { "arguments.\($0.local)" } + ephemeralCalls).joined(separator: ", ") + ")"
             }
-            let dispatcherResolution = ephemeralRegistryResolution(owner: isStatic ? "mock" : "mock", indentation: "            ")
-            let dispatcher = ephemeralUsesRegistry ? "dispatcher" : "mock.\(ephemeralChannelName)"
-            body = "\(mainResolution)\(dispatcherResolution)\(mainStub)\(dispatcher).addAction(matching: \(matcherClosure), specificity: \(specificity)) { arguments, ephemeral in \(recordableCall) }"
+            body = "\(registryResolution)\(channelReference).addAction(matching: \(matcherClosure), specificity: \(specificity)\(outcomes)) { arguments, ephemeral in \(recordableCall) }"
             let actionTypes = parameters.map(\.type) + ephemeralParameters.map(\.type)
             let actionType = "(" + actionTypes.joined(separator: ", ") + ") -> Void"
             return method(fluentSignature(arguments: "\(leading)_ action: @escaping \(actionType)"), body: body)

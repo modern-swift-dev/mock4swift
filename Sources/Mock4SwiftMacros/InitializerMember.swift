@@ -24,7 +24,7 @@ struct InitializerMember {
     }
 
     var channelType: String {
-        "\(isTransient ? "TransientMockMember" : "MockMember")<\(argumentsType), Void>"
+        "\(isTransient ? "TransientMockMember" : "MockMember")<\(argumentsType), Void, Void>"
     }
 
     var availability: String {

@@ -228,10 +228,9 @@ struct MockGenerator {
             }
             return "    \(isolation)private let \(member.channelName) = \(member.channelConstructor)"
         }
-        let ephemeralChannels = all.compactMap(\.ephemeralChannelDeclaration)
         let initializerChannels = initializers.filter { !$0.usesRegistry }.map { "    \(isolation)private let \($0.channelName) = \($0.channelType)(name: \"\($0.displayName)\")" }
         let argumentStructs = all.compactMap(\.argumentsStructDeclaration)
-        let channels = (argumentStructs + memberChannels + ephemeralChannels + initializerChannels).joined(separator: "\n")
+        let channels = (argumentStructs + memberChannels + initializerChannels).joined(separator: "\n")
         let initializerWitnesses = initializers.map(\.witness).joined(separator: "\n\n")
         let memberWitnesses = all.map(\.witness).filter { !$0.isEmpty }
         let witnesses = (memberWitnesses + (initializerWitnesses.isEmpty ? [] : [initializerWitnesses])).joined(separator: "\n\n")
@@ -243,7 +242,7 @@ struct MockGenerator {
         let staticVerifyFactories = staticMembers.map(\.verifyFactory).joined(separator: "\n\n")
         let staticOrderFactories = staticMembers.map(\.orderFactory).joined(separator: "\n\n")
         let staticPerformFactories = staticMembers.map(\.performFactory).joined(separator: "\n\n")
-        let resets = (instance.filter { !$0.usesRegistry }.map { "        \($0.channelName).reset(scopes)" } + instance.compactMap(\.ephemeralReset) + initializers.filter { !$0.usesRegistry }
+        let resets = (instance.filter { !$0.usesRegistry }.map { "        \($0.channelName).reset(scopes)" } + initializers.filter { !$0.usesRegistry }
             .map { "        \($0.channelName).reset(scopes)" }).joined(separator: "\n")
         let channelSection = channels.isEmpty ? "" : channels + "\n\n"
         let givenSection = givenFactories.isEmpty ? "" : "\n\n" + givenFactories
