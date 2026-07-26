@@ -177,6 +177,7 @@ private struct Identifier: IdentifiedValue, Equatable {
     Verify(mock, 1).greeting()
     Verify(mock, 1).unit()
     Verify(mock, 1).unit(set: .value("F"))
+    VerifyNoMoreInteractions(mock)
     #expect(cities.values == ["Toronto", "Toronto", "Toronto"])
     #expect(performedCities == ["Toronto", "Toronto", "Toronto"])
 }
@@ -202,6 +203,8 @@ private struct Identifier: IdentifiedValue, Equatable {
     Verify(mock, 1).subscriptGet(.value("answer"))
     Verify(mock, 1).subscriptSet(.value("answer"), value: .value(43))
     Verify(mock, 1).initializer(seed: .value(1))
+    VerifyNoMoreInteractions(mock)
+    VerifyNoMoreInteractions(AdvancedServiceMock.self)
 }
 
 @Test private func generatedMockSupportsAssociatedTypesOverloadsVariadicsAndInout() {
@@ -225,6 +228,7 @@ private struct Identifier: IdentifiedValue, Equatable {
     Verify(mock, 1).convert(.value("two"))
     Verify(mock, 1).total(.value([1, 2, 3]))
     Verify(mock, 1).mutate(.value(5))
+    VerifyNoMoreInteractions(mock)
 }
 
 @Test private func generatedActorMockSupportsNonisolatedConfiguration() async {
@@ -369,6 +373,9 @@ private struct Identifier: IdentifiedValue, Equatable {
         order.expect(ordered).save(.value(2))
         order.expect(OrderedServiceMock.self).make(.value(3))
     }
+    VerifyNoMoreInteractions(weather)
+    VerifyNoMoreInteractions(ordered)
+    VerifyNoMoreInteractions(OrderedServiceMock.self)
 
     resetMock(OrderedServiceMock.self)
 }
@@ -387,9 +394,15 @@ private struct Identifier: IdentifiedValue, Equatable {
     #expect(try mock.run { () throws -> Int in 0 } == 42)
     #expect(callbackValue == 0)
 
+    VerifyInOrder { order in
+        order.expect(mock).echo(.value("input"))
+        order.expect(mock).echo(.value(1))
+        order.expect(mock).run(returning: Int.self)
+    }
     Verify(mock, 1).echo(.value("input"))
     Verify(mock, 1).echo(.value(1))
     Verify(mock, 1).run(returning: Int.self)
+    VerifyNoMoreInteractions(mock)
 }
 
 @Test private func generatedMockSupportsUnusedConstrainedPrimaryAssociatedType() {
@@ -404,8 +417,13 @@ private struct Identifier: IdentifiedValue, Equatable {
 
     #expect(StaticGenericServiceMock.identity("input") == "output")
     #expect(StaticGenericServiceMock.identity(1) == 2)
+    VerifyInOrder { order in
+        order.expect(StaticGenericServiceMock.self).identity(.value("input"))
+        order.expect(StaticGenericServiceMock.self).identity(.value(1))
+    }
     Verify(StaticGenericServiceMock.self, 1).identity(.value("input"))
     Verify(StaticGenericServiceMock.self, 1).identity(.value(1))
+    VerifyNoMoreInteractions(StaticGenericServiceMock.self)
 }
 
 @Test @MainActor private func generatedGlobalActorMockKeepsConfigurationUsable() {
@@ -484,6 +502,15 @@ private struct Identifier: IdentifiedValue, Equatable {
     #expect(property.raw == 6)
     #expect(indexed.raw == 8)
     #expect(inspected == 3)
+    VerifyInOrder { order in
+        order.expect(mock).inspect()
+        order.expect(mock).consume(token: ())
+        order.expect(mock).make()
+        order.expect(mock).token()
+        order.expect(mock).token(set: ())
+        order.expect(mock).subscriptGet()
+        order.expect(mock).subscriptSet()
+    }
     Verify(mock, 1).inspect()
     Verify(mock, 1).consume(token: ())
     Verify(mock, 1).make()
@@ -491,11 +518,14 @@ private struct Identifier: IdentifiedValue, Equatable {
     Verify(mock, 1).token(set: ())
     Verify(mock, 1).subscriptGet()
     Verify(mock, 1).subscriptSet()
+    VerifyNoMoreInteractions(mock)
 
     let initialized = NoncopyableInitializerServiceMock(NoncopyableToken(raw: 5))
     Verify(initialized, 1).initializer()
+    VerifyNoMoreInteractions(initialized)
     let genericInitialized = GenericNoncopyableInitializerServiceMock(NoncopyableToken(raw: 6))
     Verify(genericInitialized, 1).initializer(valueType: NoncopyableToken.self)
+    VerifyNoMoreInteractions(genericInitialized)
 }
 
 @Test private func generatedEffectfulPropertiesAndStaticGenericSubscripts() async throws {

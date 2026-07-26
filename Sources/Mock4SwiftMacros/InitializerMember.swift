@@ -223,7 +223,8 @@ struct InitializerMember {
                             source: mock,
                             invocations: { mock._mock4SwiftOrderedInvocations },
                             member: "\(displayName)",
-                            matches: { sequence in \(channelReference).matchesInvocation(sequence: sequence) }
+                            matches: { sequence in \(channelReference).matchesInvocation(sequence: sequence) },
+                            markVerified: { sequence in \(channelReference)._mock4SwiftMarkVerified(sequence: sequence) }
                         )
                     }
             """
@@ -239,7 +240,8 @@ struct InitializerMember {
                         source: mock,
                         invocations: { mock._mock4SwiftOrderedInvocations },
                         member: "\(displayName)",
-                        matches: { sequence in \(channelReference).matchesInvocation(sequence: sequence, matching: \(matcherClosure)) }
+                        matches: { sequence in \(channelReference).matchesInvocation(sequence: sequence, matching: \(matcherClosure)) },
+                        markVerified: { sequence in \(channelReference)._mock4SwiftMarkVerified(sequence: sequence) }
                     )
                 }
         """

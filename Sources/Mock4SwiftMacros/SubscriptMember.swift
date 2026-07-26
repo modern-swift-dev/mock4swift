@@ -431,7 +431,8 @@ struct SubscriptMember {
             \(registryResolution)order._append(
                 \(source),
                 member: "\(displayName)",
-                matches: { sequence in \(matches) }
+                matches: { sequence in \(matches) },
+                markVerified: { sequence in \(channelReference)._mock4SwiftMarkVerified(sequence: sequence) }
             )
             """
         )

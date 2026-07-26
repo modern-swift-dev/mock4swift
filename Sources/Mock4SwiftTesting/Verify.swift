@@ -46,6 +46,20 @@ public func VerifyInOrder(
     record(order.verification(), sourceLocation: sourceLocation)
 }
 
+public func VerifyNoMoreInteractions<M: _Mock4SwiftExhaustiveMock>(
+    _ mock: M,
+    sourceLocation: SourceLocation = SourceLocation(fileID: #fileID, filePath: #filePath, line: #line, column: #column)
+) {
+    record(_mock4SwiftNoMoreInteractionsResult(mock._mock4SwiftUnverifiedInvocations), sourceLocation: sourceLocation)
+}
+
+public func VerifyNoMoreInteractions<M: _Mock4SwiftExhaustiveStaticMock>(
+    _ mock: M.Type,
+    sourceLocation: SourceLocation = SourceLocation(fileID: #fileID, filePath: #filePath, line: #line, column: #column)
+) {
+    record(_mock4SwiftNoMoreInteractionsResult(M._mock4SwiftUnverifiedInvocations), sourceLocation: sourceLocation)
+}
+
 private func record(_ result: VerificationResult, sourceLocation: SourceLocation) {
     guard !result.success else {
         return

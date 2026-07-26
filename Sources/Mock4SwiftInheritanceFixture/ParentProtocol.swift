@@ -5,5 +5,6 @@ public protocol CrossTargetParent {
 }
 
 @Mockable public protocol LibraryTargetChild: CrossTargetParent {
+    static func sharedValue() -> Int
     func childValue() -> Int
 }

@@ -37,8 +37,12 @@ final class MockableMacroTests: XCTestCase {
             expandedSource: """
             protocol Empty {}
 
-            final class EmptyMock: Empty, Mock, InOrderMock {
+            final class EmptyMock: Empty, Mock, InOrderMock, _Mock4SwiftExhaustiveMock {
                 fileprivate var _mock4SwiftOrderedInvocations: [_Mock4SwiftInvocation] {
+                    []
+                }
+
+                var _mock4SwiftUnverifiedInvocations: [_Mock4SwiftInvocation] {
                     []
                 }
 
@@ -260,6 +264,26 @@ final class MockableMacroTests: XCTestCase {
         XCTAssertFalse(source.contains("_genericMockRegistry"))
     }
 
+    func testGeneratedMocksExposeExhaustiveVerificationAndOrderMarkers() throws {
+        let source = try peerSource(
+            """
+            public protocol Service {
+                static func load(_ value: Int)
+                var value: Int { get set }
+                subscript(_ key: String) -> Int { get set }
+            }
+            """
+        )
+
+        XCTAssertTrue(source.contains("public final class ServiceMock: Service, Mock, InOrderMock, _Mock4SwiftExhaustiveMock, StaticMock, InOrderStaticMock, _Mock4SwiftExhaustiveStaticMock"))
+        XCTAssertTrue(source.contains("public var _mock4SwiftUnverifiedInvocations: [_Mock4SwiftInvocation]"))
+        XCTAssertTrue(source.contains("public static var _mock4SwiftUnverifiedInvocations: [_Mock4SwiftInvocation]"))
+        XCTAssertTrue(source.contains("StaticMockRegistry.shared.unverifiedInvocations(owner: Self.self)"))
+        XCTAssertTrue(source.contains("markVerified: { sequence in mock._mock_load_0._mock4SwiftMarkVerified(sequence: sequence) }"))
+        XCTAssertTrue(source.contains("markVerified: { sequence in mock._mock_value_get_1._mock4SwiftMarkVerified(sequence: sequence) }"))
+        XCTAssertTrue(source.contains("markVerified: { sequence in mock._mock_subscript_get_"))
+    }
+
     func testGlobalActorAndAvailabilityArePreservedWithNonisolatedConfiguration() throws {
         let source = try peerSource(
             """
@@ -326,6 +350,7 @@ final class MockableMacroTests: XCTestCase {
         XCTAssertTrue(source.contains("func initializer(seed matching0: Parameter<Int>, labels matching1: Parameter<[String]>)"))
         XCTAssertTrue(source.contains("func initializer(name matching0: Parameter<String>)"))
         XCTAssertTrue(source.contains("func initializer()"))
+        XCTAssertTrue(source.contains("markVerified: { sequence in mock._mock_initializer_0._mock4SwiftMarkVerified(sequence: sequence) }"))
     }
 
     func testGenericInitializerUsesSpecializationRegistry() throws {

@@ -11,6 +11,7 @@ public final class GenericMockRegistry: @unchecked Sendable {
         let value: Any
         let reset: ([MockScope]) -> Void
         let invocations: () -> [_Mock4SwiftInvocation]
+        let unverifiedInvocations: () -> [_Mock4SwiftInvocation]
     }
 
     private struct TransientEntry {
@@ -20,6 +21,7 @@ public final class GenericMockRegistry: @unchecked Sendable {
         let type: ObjectIdentifier
         let reset: ([MockScope]) -> Void
         let invocations: () -> [_Mock4SwiftInvocation]
+        let unverifiedInvocations: () -> [_Mock4SwiftInvocation]
         let release: () -> Void
     }
 
@@ -68,7 +70,8 @@ public final class GenericMockRegistry: @unchecked Sendable {
             entries[lookup] = Entry(
                 value: candidate,
                 reset: candidate.reset,
-                invocations: { candidate.orderedInvocations }
+                invocations: { candidate.orderedInvocations },
+                unverifiedInvocations: { candidate._mock4SwiftUnverifiedInvocations }
             )
             return candidate
         }
@@ -112,6 +115,7 @@ public final class GenericMockRegistry: @unchecked Sendable {
                 type: type,
                 reset: candidate.reset,
                 invocations: { candidate.orderedInvocations },
+                unverifiedInvocations: { candidate._mock4SwiftUnverifiedInvocations },
                 release: retained.release
             )
             return candidate
@@ -126,6 +130,13 @@ public final class GenericMockRegistry: @unchecked Sendable {
     public var orderedInvocations: [_Mock4SwiftInvocation] {
         let snapshots = lock.withLock {
             entries.values.map(\.invocations) + transientEntries.values.map(\.invocations)
+        }
+        return snapshots.flatMap { $0() }
+    }
+
+    public var unverifiedInvocations: [_Mock4SwiftInvocation] {
+        let snapshots = lock.withLock {
+            entries.values.map(\.unverifiedInvocations) + transientEntries.values.map(\.unverifiedInvocations)
         }
         return snapshots.flatMap { $0() }
     }

@@ -13,3 +13,7 @@ public protocol StaticMock {
     ) -> StaticVerify
     static func resetMock(_ scopes: MockScope...)
 }
+
+public protocol _Mock4SwiftExhaustiveStaticMock: StaticMock {
+    static var _mock4SwiftUnverifiedInvocations: [_Mock4SwiftInvocation] { get }
+}

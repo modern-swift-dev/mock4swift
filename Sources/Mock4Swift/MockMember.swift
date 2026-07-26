@@ -33,6 +33,7 @@ public final class MockMember<Arguments, Ephemeral, Output>: @unchecked Sendable
     }
 
     private var invocations: [Invocation] = []
+    private var verifiedSequences: Set<UInt64> = []
     private var stubs: [Stub] = []
     private var actions: [Action] = []
     private var actionStubs: [ActionStub] = []
@@ -224,6 +225,18 @@ public final class MockMember<Arguments, Ephemeral, Output>: @unchecked Sendable
         }
     }
 
+    public var _mock4SwiftUnverifiedInvocations: [_Mock4SwiftInvocation] {
+        lock.withLock {
+            invocations.compactMap {
+                verifiedSequences.contains($0.sequence) ? nil : .init(sequence: $0.sequence, member: name)
+            }
+        }
+    }
+
+    public func _mock4SwiftMarkVerified(sequence: UInt64) {
+        markVerified([sequence])
+    }
+
     public func matchesInvocation(
         sequence: UInt64,
         matching: @escaping (Arguments) -> Bool
@@ -233,8 +246,13 @@ public final class MockMember<Arguments, Ephemeral, Output>: @unchecked Sendable
     }
 
     public func verification(matching: @escaping (Arguments) -> Bool, count: Count) -> VerificationResult {
-        let actual = invocationCount(matching: matching)
+        let snapshot = lock.withLock { invocations }
+        let matchingSequences = snapshot.compactMap { matching($0.arguments) ? $0.sequence : nil }
+        let actual = matchingSequences.count
         let success = count.matches(actual)
+        if success {
+            markVerified(matchingSequences)
+        }
         return .init(
             success: success,
             message: success ? "Verified \(count) for \(name)" : "Expected \(count) for \(name), got \(actual)"
@@ -246,6 +264,7 @@ public final class MockMember<Arguments, Ephemeral, Output>: @unchecked Sendable
         lock.withLock {
             if scopes.contains(.invocations) {
                 invocations.removeAll()
+                verifiedSequences.removeAll()
             }
             if scopes.contains(.stubs) {
                 stubs.removeAll()
@@ -312,6 +331,13 @@ public final class MockMember<Arguments, Ephemeral, Output>: @unchecked Sendable
             let index = min(nextOutcome[id, default: 0], outcomes.count - 1)
             nextOutcome[id] = index + 1
             return outcomes[index]
+        }
+    }
+
+    private func markVerified(_ sequences: [UInt64]) {
+        lock.withLock {
+            let currentSequences = Set(invocations.map(\.sequence))
+            verifiedSequences.formUnion(sequences.filter(currentSequences.contains))
         }
     }
 }

@@ -36,6 +36,7 @@ public final class InOrder {
     private struct Expectation {
         let member: String
         let matches: (UInt64) -> Bool
+        let markVerified: (UInt64) -> Void
     }
 
     private var sources: [SourceID: () -> [_Mock4SwiftInvocation]] = [:]
@@ -47,20 +48,22 @@ public final class InOrder {
         source: AnyObject,
         invocations: @escaping () -> [_Mock4SwiftInvocation],
         member: String,
-        matches: @escaping (UInt64) -> Bool
+        matches: @escaping (UInt64) -> Bool,
+        markVerified: @escaping (UInt64) -> Void = { _ in }
     ) {
         sources[.instance(ObjectIdentifier(source))] = invocations
-        expectations.append(.init(member: member, matches: matches))
+        expectations.append(.init(member: member, matches: matches, markVerified: markVerified))
     }
 
     public func _append(
         sourceType: Any.Type,
         invocations: @escaping () -> [_Mock4SwiftInvocation],
         member: String,
-        matches: @escaping (UInt64) -> Bool
+        matches: @escaping (UInt64) -> Bool,
+        markVerified: @escaping (UInt64) -> Void = { _ in }
     ) {
         sources[.type(ObjectIdentifier(sourceType))] = invocations
-        expectations.append(.init(member: member, matches: matches))
+        expectations.append(.init(member: member, matches: matches, markVerified: markVerified))
     }
 
     public func verification() -> VerificationResult {
@@ -72,6 +75,7 @@ public final class InOrder {
         guard var index = invocations.firstIndex(where: { first.matches($0.sequence) }) else {
             return .init(success: false, message: "Expected first in-order invocation \(first.member), but it was not called")
         }
+        var matched = [(first, invocations[index].sequence)]
 
         for expectation in expectations.dropFirst() {
             index += 1
@@ -88,8 +92,10 @@ public final class InOrder {
                     message: "Expected \(expectation.member) after \(invocations[index - 1].member), got \(actual.member)"
                 )
             }
+            matched.append((expectation, actual.sequence))
         }
 
+        matched.forEach { $0.0.markVerified($0.1) }
         return .init(success: true, message: "Verified \(expectations.count) invocations in order")
     }
 }

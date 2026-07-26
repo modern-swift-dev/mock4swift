@@ -128,44 +128,96 @@ import Testing
         source: first,
         invocations: { first.orderedInvocations },
         member: "first",
-        matches: { first.matchesInvocation(sequence: $0, matching: { $0 == 1 }) }
+        matches: { first.matchesInvocation(sequence: $0, matching: { $0 == 1 }) },
+        markVerified: { first._mock4SwiftMarkVerified(sequence: $0) }
     )
     success._append(
         source: second,
         invocations: { second.orderedInvocations },
         member: "second",
-        matches: { second.matchesInvocation(sequence: $0, matching: { $0 == 2 }) }
+        matches: { second.matchesInvocation(sequence: $0, matching: { $0 == 2 }) },
+        markVerified: { second._mock4SwiftMarkVerified(sequence: $0) }
     )
     success._append(
         source: first,
         invocations: { first.orderedInvocations },
         member: "first",
-        matches: { first.matchesInvocation(sequence: $0, matching: { $0 == 3 }) }
+        matches: { first.matchesInvocation(sequence: $0, matching: { $0 == 3 }) },
+        markVerified: { first._mock4SwiftMarkVerified(sequence: $0) }
     )
     #expect(success.verification().success)
+    #expect(first._mock4SwiftUnverifiedInvocations.isEmpty)
+    #expect(second._mock4SwiftUnverifiedInvocations.isEmpty)
+
+    first.reset([.invocations])
+    second.reset([.invocations])
+    try first.invoke(1)
+    try second.invoke(2)
+    try first.invoke(3)
 
     let failure = InOrder()
     failure._append(
         source: first,
         invocations: { first.orderedInvocations },
         member: "first",
-        matches: { first.matchesInvocation(sequence: $0, matching: { $0 == 1 }) }
+        matches: { first.matchesInvocation(sequence: $0, matching: { $0 == 1 }) },
+        markVerified: { first._mock4SwiftMarkVerified(sequence: $0) }
     )
     failure._append(
         source: first,
         invocations: { first.orderedInvocations },
         member: "first",
-        matches: { first.matchesInvocation(sequence: $0, matching: { $0 == 3 }) }
+        matches: { first.matchesInvocation(sequence: $0, matching: { $0 == 3 }) },
+        markVerified: { first._mock4SwiftMarkVerified(sequence: $0) }
     )
     failure._append(
         source: second,
         invocations: { second.orderedInvocations },
         member: "second",
-        matches: { second.matchesInvocation(sequence: $0, matching: { $0 == 2 }) }
+        matches: { second.matchesInvocation(sequence: $0, matching: { $0 == 2 }) },
+        markVerified: { second._mock4SwiftMarkVerified(sequence: $0) }
     )
     let result = failure.verification()
     #expect(!result.success)
     #expect(result.message.contains("got second"))
+    #expect(first._mock4SwiftUnverifiedInvocations.count == 2)
+    #expect(second._mock4SwiftUnverifiedInvocations.count == 1)
+}
+
+@Test func verificationMarksOnlySuccessfulMatchingSnapshot() {
+    let member = MockMember<Int, Void, Void>(name: "load(_:)")
+    member.record(1)
+    member.record(2)
+    member.record(1)
+
+    #expect(!member.verification(matching: { $0 == 1 }, count: 3).success)
+    #expect(member._mock4SwiftUnverifiedInvocations.count == 3)
+    #expect(member.verification(matching: { $0 == 1 }, count: 2).success)
+    #expect(member._mock4SwiftUnverifiedInvocations.count == 1)
+    #expect(member.verification(matching: { $0 == 1 }, count: 2).success)
+    #expect(member.invocationCount(matching: { $0 == 1 }) == 2)
+
+    member.reset([.invocations])
+    #expect(member._mock4SwiftUnverifiedInvocations.isEmpty)
+    member.record(1)
+    #expect(member._mock4SwiftUnverifiedInvocations.count == 1)
+}
+
+@Test func verificationEvaluatesMatcherOutsideLockAndUsesSnapshot() {
+    let member = MockMember<Int, Void, Void>(name: "load(_:)")
+    member.record(1)
+    var recorded = false
+
+    let result = member.verification(matching: { _ in
+        if !recorded {
+            recorded = true
+            member.record(2)
+        }
+        return true
+    }, count: 1)
+
+    #expect(result.success)
+    #expect(member._mock4SwiftUnverifiedInvocations.count == 1)
 }
 
 @Test func actionAndCaptorWorkWithoutLeakingResetState() throws {
@@ -285,6 +337,29 @@ import Testing
     integers.addStub(matching: { _ in true }, outcomes: [.returning(1)])
     #expect(try strings.invoke("input") == "text")
     #expect(try integers.invoke(0) == 1)
+}
+
+@Test func registriesAggregateUnverifiedInvocationsInSequenceOrder() {
+    enum Owner {}
+    enum OtherOwner {}
+    let staticRegistry = StaticMockRegistry()
+    let load: MockMember<Int, Void, Void> = staticRegistry.member(owner: Owner.self, key: "load") { .init(name: "load(_:)") }
+    let save: MockMember<Int, Void, Void> = staticRegistry.member(owner: Owner.self, key: "save") { .init(name: "save(_:)") }
+    let other: MockMember<Void, Void, Void> = staticRegistry.member(owner: OtherOwner.self, key: "other") { .init(name: "other") }
+    load.record(1)
+    other.record(())
+    save.record(2)
+    load.record(3)
+
+    let staticResult = _mock4SwiftNoMoreInteractionsResult(staticRegistry.unverifiedInvocations(owner: Owner.self))
+    #expect(staticResult.message == "Unverified interactions: load(*:) ×2, save(*:) ×1")
+
+    let genericRegistry = GenericMockRegistry()
+    let strings: MockMember<String, Void, Void> = genericRegistry.member(key: "load", types: [String.self]) { .init(name: "load(_:)") }
+    let integers: TransientMockMember<Int, Void, Void> = genericRegistry.member(key: "save", types: [Int.self]) { .init(name: "save(_:)") }
+    strings.record("value")
+    integers.record()
+    #expect(genericRegistry.unverifiedInvocations.count == 2)
 }
 
 @Test func memberSupportsConcurrentInvocation() async throws {

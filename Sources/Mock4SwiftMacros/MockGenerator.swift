@@ -258,7 +258,12 @@ struct MockGenerator {
             + (needsGenericRegistry ? ["_genericMockRegistry.orderedInvocations"] : [])
         let orderedExpression = orderedChannels.isEmpty ? "[]" : orderedChannels.joined(separator: " + ")
         let orderedInvocations = "    fileprivate \(isolation)var _mock4SwiftOrderedInvocations: [_Mock4SwiftInvocation] { \(orderedExpression) }\n\n"
-        let staticConformance = staticMembers.isEmpty ? "" : ", StaticMock, InOrderStaticMock"
+        let unverifiedChannels = instance.filter { !$0.usesRegistry }.map { "\($0.channelName)._mock4SwiftUnverifiedInvocations" }
+            + initializers.filter { !$0.usesRegistry }.map { "\($0.channelName)._mock4SwiftUnverifiedInvocations" }
+            + (needsGenericRegistry ? ["_genericMockRegistry.unverifiedInvocations"] : [])
+        let unverifiedExpression = unverifiedChannels.isEmpty ? "[]" : unverifiedChannels.joined(separator: " + ")
+        let unverifiedInvocations = "    \(access)\(isolation)var _mock4SwiftUnverifiedInvocations: [_Mock4SwiftInvocation] { \(unverifiedExpression) }\n\n"
+        let staticConformance = staticMembers.isEmpty ? "" : ", StaticMock, InOrderStaticMock, _Mock4SwiftExhaustiveStaticMock"
         let defaultInitializer: String = if initializers.isEmpty, accessOverride != nil {
             isObjectiveC
                 ? "    \(access)override init() { super.init() }\n\n"
@@ -301,6 +306,9 @@ struct MockGenerator {
             \(access)\(isolation)static func orderExpectations(in order: InOrder) -> StaticOrderExpect {
                 StaticOrderExpect(mock: self, order: order)
             }
+            \(access)\(isolation)static var _mock4SwiftUnverifiedInvocations: [_Mock4SwiftInvocation] {
+                StaticMockRegistry.shared.unverifiedInvocations(owner: Self.self)
+            }
             \(access)\(isolation)static func verification(
                 count: Count,
                 report: @escaping (VerificationResult) -> Void
@@ -313,10 +321,11 @@ struct MockGenerator {
         """
 
         let superclass = isObjectiveC ? "Foundation.NSObject, " : ""
-        return attributePrefix + access + "final \(kind) \(mockType)\(generics): \(superclass)\(conformanceType), Mock, InOrderMock\(staticConformance)\(mockWhere) {\n"
+        return attributePrefix + access + "final \(kind) \(mockType)\(generics): \(superclass)\(conformanceType), Mock, InOrderMock, _Mock4SwiftExhaustiveMock\(staticConformance)\(mockWhere) {\n"
             + typealiasSection
             + genericRegistry
             + orderedInvocations
+            + unverifiedInvocations
             + channelSection
             + defaultInitializer
             + "    \(access)struct Given {\n"
@@ -362,7 +371,8 @@ struct MockGenerator {
             if let variable = item.decl.as(VariableDeclSyntax.self),
                let identifier = variable.bindings.first?.pattern.as(IdentifierPatternSyntax.self)?.identifier.text,
                identifier.hasPrefix("_mock_") || identifier == "_genericMockRegistry"
-                   || identifier == "_mock4SwiftOrderedInvocations" {
+                   || identifier == "_mock4SwiftOrderedInvocations"
+                   || identifier == "_mock4SwiftUnverifiedInvocations" {
                 return item.decl
             }
             if let structure = item.decl.as(StructDeclSyntax.self),

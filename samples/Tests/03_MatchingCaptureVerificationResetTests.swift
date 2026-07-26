@@ -56,6 +56,7 @@ private final class ReferenceItem {}
     Verify(service, .between(1, 3)).record(.any)
     Verify(service, .between(1 ... 2)).record(.any)
     Verify(service, .never).record(.value(99))
+    VerifyNoMoreInteractions(service)
 
     values.reset()
     #expect(values.values.isEmpty)

@@ -32,6 +32,7 @@ public final class TransientMockMember<
 
     private let lock = NSLock()
     private var invocations: [UInt64] = []
+    private var verifiedSequences: Set<UInt64> = []
     private var stubs: [Stub] = []
     private var actions: [Action] = []
     private var actionStubs: [ActionStub] = []
@@ -230,13 +231,29 @@ public final class TransientMockMember<
         }
     }
 
+    public var _mock4SwiftUnverifiedInvocations: [_Mock4SwiftInvocation] {
+        lock.withLock {
+            invocations.compactMap {
+                verifiedSequences.contains($0) ? nil : .init(sequence: $0, member: name)
+            }
+        }
+    }
+
+    public func _mock4SwiftMarkVerified(sequence: UInt64) {
+        markVerified([sequence])
+    }
+
     public func matchesInvocation(sequence: UInt64) -> Bool {
         lock.withLock { invocations.contains(sequence) }
     }
 
     public func verification(count: Count) -> VerificationResult {
-        let actual = invocationCount
+        let snapshot = lock.withLock { invocations }
+        let actual = snapshot.count
         let success = count.matches(actual)
+        if success {
+            markVerified(snapshot)
+        }
         return .init(
             success: success,
             message: success ? "Verified \(count) for \(name)" : "Expected \(count) for \(name), got \(actual)"
@@ -248,6 +265,7 @@ public final class TransientMockMember<
         lock.withLock {
             if scopes.contains(.invocations) {
                 invocations.removeAll()
+                verifiedSequences.removeAll()
             }
             if scopes.contains(.stubs) {
                 stubs.removeAll()
@@ -314,6 +332,13 @@ public final class TransientMockMember<
             let index = min(nextOutcome[id, default: 0], outcomes.count - 1)
             nextOutcome[id] = index + 1
             return outcomes[index]
+        }
+    }
+
+    private func markVerified(_ sequences: [UInt64]) {
+        lock.withLock {
+            let currentSequences = Set(invocations)
+            verifiedSequences.formUnion(sequences.filter(currentSequences.contains))
         }
     }
 }

@@ -51,6 +51,22 @@ public func VerifyInOrder(
     report(order.verification(), file: file, line: line)
 }
 
+public func VerifyNoMoreInteractions<M: _Mock4SwiftExhaustiveMock>(
+    _ mock: M,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) {
+    report(_mock4SwiftNoMoreInteractionsResult(mock._mock4SwiftUnverifiedInvocations), file: file, line: line)
+}
+
+public func VerifyNoMoreInteractions<M: _Mock4SwiftExhaustiveStaticMock>(
+    _ mock: M.Type,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) {
+    report(_mock4SwiftNoMoreInteractionsResult(M._mock4SwiftUnverifiedInvocations), file: file, line: line)
+}
+
 private func report(_ result: VerificationResult, file: StaticString, line: UInt) {
     guard !result.success else {
         return

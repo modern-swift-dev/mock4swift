@@ -89,6 +89,7 @@ The runtime channel types now include ephemeral arguments: `MockMember<Arguments
 let cities = ArgumentCaptor<String>()
 Verify(weather, .atLeast(1)).temperature(for: .capturing(cities))
 let lastCity = cities.lastValue
+VerifyNoMoreInteractions(weather)
 
 resetMock(weather)                         // all state
 resetMock(weather, scopes: [.invocations]) // selected state
@@ -96,6 +97,7 @@ resetMock(ServiceMock.self, scopes: [.stubs, .actions])
 ```
 
 Verification counts include integer literals, `.never`, `.exactly`, `.atLeast`, `.atMost`, and `.between`.
+Successful verification marks matching calls; `VerifyNoMoreInteractions` reports any calls not covered by successful verification.
 
 Strict in-order verification can span instance and static mocks:
 

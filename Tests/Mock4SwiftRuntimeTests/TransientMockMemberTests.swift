@@ -40,9 +40,13 @@ import Testing
 
     #expect(try member.invoke(1) == 8)
     #expect(member.verification(count: .exactly(1)).success)
+    #expect(member._mock4SwiftUnverifiedInvocations.isEmpty)
+    #expect(member.verification(count: .exactly(1)).success)
     member.reset([.invocations])
     #expect(member.verification(count: .never).success)
+    #expect(member._mock4SwiftUnverifiedInvocations.isEmpty)
     #expect(try member.invoke(2) == 8)
+    #expect(member._mock4SwiftUnverifiedInvocations.count == 1)
     member.reset([.actions])
     #expect(try member.invoke(3) == 8)
     #expect(actions == 2)

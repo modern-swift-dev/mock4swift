@@ -13,3 +13,7 @@ public protocol Mock: AnyObject {
     ) -> Verify
     func resetMock(_ scopes: MockScope...)
 }
+
+public protocol _Mock4SwiftExhaustiveMock: Mock {
+    var _mock4SwiftUnverifiedInvocations: [_Mock4SwiftInvocation] { get }
+}

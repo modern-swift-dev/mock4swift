@@ -12,6 +12,8 @@ final class AdapterTests: XCTestCase {
         Mock4SwiftTesting.Verify(mock, 1).check()
         Mock4SwiftXCTest.Verify(mock, .atLeast(1)).check()
         Mock4SwiftXCTest.Verify(mock, 1).check()
+        Mock4SwiftTesting.VerifyNoMoreInteractions(mock)
+        Mock4SwiftXCTest.VerifyNoMoreInteractions(mock)
     }
 
     func testStaticAdaptersAcceptSuccessfulVerification() {
@@ -19,6 +21,8 @@ final class AdapterTests: XCTestCase {
         Mock4SwiftTesting.Verify(StaticTestMock.self, 1).check()
         Mock4SwiftXCTest.Verify(StaticTestMock.self, .atLeast(1)).check()
         Mock4SwiftXCTest.Verify(StaticTestMock.self, 1).check()
+        Mock4SwiftTesting.VerifyNoMoreInteractions(StaticTestMock.self)
+        Mock4SwiftXCTest.VerifyNoMoreInteractions(StaticTestMock.self)
     }
 
     func testXCTestInOrderAdapterAcceptsSuccessfulVerification() {
@@ -27,7 +31,8 @@ final class AdapterTests: XCTestCase {
                 source: InstanceMock(),
                 invocations: { [_Mock4SwiftInvocation(sequence: 1, member: "check")] },
                 member: "check",
-                matches: { $0 == 1 }
+                matches: { $0 == 1 },
+                markVerified: { _ in }
             )
         }
     }
@@ -62,6 +67,36 @@ final class AdapterTests: XCTestCase {
             }
         )
     }
+
+    func testXCTestNoMoreInteractionsReportsMessageAndSourceLocation() {
+        let expectedLine: UInt = 4244
+        XCTExpectFailure(
+            "The exhaustive adapter failure is intentional",
+            strict: true,
+            failingBlock: {
+                Mock4SwiftXCTest.VerifyNoMoreInteractions(FailingMock(), file: #filePath, line: expectedLine)
+            },
+            issueMatcher: { issue in
+                issue.compactDescription.contains("Unverified interactions: load(*:) ×2, save(*:) ×1")
+                    && issue.sourceCodeContext.location?.lineNumber == Int(expectedLine)
+            }
+        )
+    }
+
+    func testXCTestStaticNoMoreInteractionsReportsMessageAndSourceLocation() {
+        let expectedLine: UInt = 4245
+        XCTExpectFailure(
+            "The static exhaustive adapter failure is intentional",
+            strict: true,
+            failingBlock: {
+                Mock4SwiftXCTest.VerifyNoMoreInteractions(FailingStaticMock.self, file: #filePath, line: expectedLine)
+            },
+            issueMatcher: { issue in
+                issue.compactDescription.contains("Unverified interactions: load(*:) ×2, save(*:) ×1")
+                    && issue.sourceCodeContext.location?.lineNumber == Int(expectedLine)
+            }
+        )
+    }
     #endif
 }
 
@@ -92,7 +127,29 @@ final class AdapterTests: XCTestCase {
     }
 }
 
-private final class InstanceMock: Mock {
+@Test private func swiftTestingNoMoreInteractionsReportsMessageAndSourceLocation() {
+    let location = SourceLocation(fileID: #fileID, filePath: #filePath, line: 4244, column: 9)
+
+    withKnownIssue {
+        Mock4SwiftTesting.VerifyNoMoreInteractions(FailingMock(), sourceLocation: location)
+    } matching: { issue in
+        issue.sourceLocation == location
+            && issue.comments.contains(Comment(rawValue: "Unverified interactions: load(*:) ×2, save(*:) ×1"))
+    }
+}
+
+@Test private func swiftTestingStaticNoMoreInteractionsReportsMessageAndSourceLocation() {
+    let location = SourceLocation(fileID: #fileID, filePath: #filePath, line: 4245, column: 10)
+
+    withKnownIssue {
+        Mock4SwiftTesting.VerifyNoMoreInteractions(FailingStaticMock.self, sourceLocation: location)
+    } matching: { issue in
+        issue.sourceLocation == location
+            && issue.comments.contains(Comment(rawValue: "Unverified interactions: load(*:) ×2, save(*:) ×1"))
+    }
+}
+
+private final class InstanceMock: Mock, _Mock4SwiftExhaustiveMock {
     typealias Given = Void
     typealias Verify = AdapterVerify
     typealias Perform = Void
@@ -108,9 +165,11 @@ private final class InstanceMock: Mock {
     }
 
     func resetMock(_ scopes: MockScope...) {}
+
+    var _mock4SwiftUnverifiedInvocations: [_Mock4SwiftInvocation] { [] }
 }
 
-private final class StaticTestMock: StaticMock {
+private final class StaticTestMock: StaticMock, _Mock4SwiftExhaustiveStaticMock {
     typealias StaticGiven = Void
     typealias StaticVerify = AdapterVerify
     typealias StaticPerform = Void
@@ -126,9 +185,11 @@ private final class StaticTestMock: StaticMock {
     }
 
     static func resetMock(_ scopes: MockScope...) {}
+
+    static var _mock4SwiftUnverifiedInvocations: [_Mock4SwiftInvocation] { [] }
 }
 
-private final class FailingMock: Mock {
+private final class FailingMock: Mock, _Mock4SwiftExhaustiveMock {
     typealias Given = Void
     typealias Verify = AdapterVerify
     typealias Perform = Void
@@ -144,6 +205,40 @@ private final class FailingMock: Mock {
     }
 
     func resetMock(_ scopes: MockScope...) {}
+
+    var _mock4SwiftUnverifiedInvocations: [_Mock4SwiftInvocation] {
+        [
+            .init(sequence: 1, member: "load(_:)"),
+            .init(sequence: 2, member: "save(_:)"),
+            .init(sequence: 3, member: "load(_:)")
+        ]
+    }
+}
+
+private final class FailingStaticMock: StaticMock, _Mock4SwiftExhaustiveStaticMock {
+    typealias StaticGiven = Void
+    typealias StaticVerify = AdapterVerify
+    typealias StaticPerform = Void
+
+    static func given() {}
+    static func perform() {}
+
+    static func verification(
+        count: Count,
+        report: @escaping (VerificationResult) -> Void
+    ) -> AdapterVerify {
+        AdapterVerify(result: VerificationResult(success: true, message: ""), report: report)
+    }
+
+    static func resetMock(_ scopes: MockScope...) {}
+
+    static var _mock4SwiftUnverifiedInvocations: [_Mock4SwiftInvocation] {
+        [
+            .init(sequence: 1, member: "load(_:)"),
+            .init(sequence: 2, member: "save(_:)"),
+            .init(sequence: 3, member: "load(_:)")
+        ]
+    }
 }
 
 private struct AdapterVerify {

@@ -12,6 +12,7 @@ public final class StaticMockRegistry: @unchecked Sendable {
         let value: Any
         let reset: ([MockScope]) -> Void
         let invocations: () -> [_Mock4SwiftInvocation]
+        let unverifiedInvocations: () -> [_Mock4SwiftInvocation]
     }
 
     private struct TransientEntry {
@@ -21,6 +22,7 @@ public final class StaticMockRegistry: @unchecked Sendable {
         let type: ObjectIdentifier
         let reset: ([MockScope]) -> Void
         let invocations: () -> [_Mock4SwiftInvocation]
+        let unverifiedInvocations: () -> [_Mock4SwiftInvocation]
         let release: () -> Void
     }
 
@@ -73,7 +75,8 @@ public final class StaticMockRegistry: @unchecked Sendable {
             entries[lookup] = Entry(
                 value: candidate,
                 reset: candidate.reset,
-                invocations: { candidate.orderedInvocations }
+                invocations: { candidate.orderedInvocations },
+                unverifiedInvocations: { candidate._mock4SwiftUnverifiedInvocations }
             )
             return candidate
         }
@@ -119,6 +122,7 @@ public final class StaticMockRegistry: @unchecked Sendable {
                 type: type,
                 reset: candidate.reset,
                 invocations: { candidate.orderedInvocations },
+                unverifiedInvocations: { candidate._mock4SwiftUnverifiedInvocations },
                 release: retained.release
             )
             return candidate
@@ -139,6 +143,15 @@ public final class StaticMockRegistry: @unchecked Sendable {
         let snapshots = lock.withLock {
             entries.compactMap { $0.key.owner == identifier ? $0.value.invocations : nil }
                 + transientEntries.compactMap { $0.key.owner == identifier ? $0.value.invocations : nil }
+        }
+        return snapshots.flatMap { $0() }
+    }
+
+    public func unverifiedInvocations(owner: Any.Type) -> [_Mock4SwiftInvocation] {
+        let identifier = ObjectIdentifier(owner)
+        let snapshots = lock.withLock {
+            entries.compactMap { $0.key.owner == identifier ? $0.value.unverifiedInvocations : nil }
+                + transientEntries.compactMap { $0.key.owner == identifier ? $0.value.unverifiedInvocations : nil }
         }
         return snapshots.flatMap { $0() }
     }

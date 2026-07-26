@@ -60,9 +60,16 @@ public protocol InheritedParent {
     let mock = LibraryTargetChildMock()
     Given(mock).parentValue(.value(1)).willReturn("one")
     Given(mock).childValue().willReturn(2)
+    Given(LibraryTargetChildMock.self).sharedValue().willReturn(3)
 
     #expect(mock.parentValue(1) == "one")
     #expect(mock.childValue() == 2)
+    #expect(LibraryTargetChildMock.sharedValue() == 3)
+    Verify(mock, 1).parentValue(.value(1))
+    Verify(mock, 1).childValue()
+    Verify(LibraryTargetChildMock.self, 1).sharedValue()
+    VerifyNoMoreInteractions(mock)
+    VerifyNoMoreInteractions(LibraryTargetChildMock.self)
 }
 
 @Mockable protocol ExternalPackageChild: ExternalProtocolComposition {
