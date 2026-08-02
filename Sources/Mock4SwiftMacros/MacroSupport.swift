@@ -72,6 +72,10 @@ func objectIdentifierList(_ metatypes: String) -> String {
     return "[\(values.joined(separator: ", "))]"
 }
 
+func strippingEscapingAttribute(from type: String) -> String {
+    type.replacingOccurrences(of: "@escaping\\s*", with: "", options: .regularExpression)
+}
+
 func opaqueParameterType(_ text: String, position: Int) -> (name: String, constraint: String)? {
     var type = text
     for prefix in ["inout ", "borrowing ", "consuming ", "sending "] where type.hasPrefix(prefix) {

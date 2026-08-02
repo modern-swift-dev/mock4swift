@@ -392,6 +392,19 @@ final class MockableMacroTests: XCTestCase {
         XCTAssertTrue(source.contains("func load(_ matching0: Parameter<Int>, _ action: @escaping (Int, (Int) -> Void) -> Void)"))
     }
 
+    func testEscapingClosureParameterIsRemovedFromInternalTypes() throws {
+        let source = try peerSource(
+            """
+            protocol Service {
+                func fetch(completion: @escaping @MainActor @Sendable (Result<[String], Error>) -> Void)
+            }
+            """
+        )
+        XCTAssertTrue(source.contains("func fetch(completion: @escaping @MainActor @Sendable (Result<[String], Error>) -> Void)"))
+        XCTAssertTrue(source.contains("MockMember<@MainActor @Sendable (Result<[String], Error>) -> Void, Void, Void>"))
+        XCTAssertFalse(source.contains("MockMember<@escaping"))
+    }
+
     func testPreservesAccessorEffects() throws {
         let source = try peerSource(
             """

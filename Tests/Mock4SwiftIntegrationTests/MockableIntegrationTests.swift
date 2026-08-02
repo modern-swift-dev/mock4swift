@@ -143,6 +143,10 @@ private struct Identifier: IdentifiedValue, Equatable {
     func resolve(_ key: Int, compute: () -> Int) -> Int
 }
 
+@Mockable private protocol EscapingCallbackService {
+    func fetch(completion: @escaping @MainActor @Sendable (Result<[String], Error>) -> Void)
+}
+
 #if canImport(ObjectiveC)
 @objc
 @Mockable private protocol ObjectiveCService: NSObjectProtocol {
@@ -595,6 +599,15 @@ private struct Identifier: IdentifiedValue, Equatable {
     }
     #expect(combined == "3x")
     Verify(mock, 1).combine()
+}
+
+@Test private func generatedEscapingCallbackMockCompilesAndRecordsInvocations() {
+    let mock = EscapingCallbackServiceMock()
+    Given(mock).fetch(completion: .any)
+
+    mock.fetch { _ in }
+
+    Verify(mock, 1).fetch(completion: .any)
 }
 
 #if canImport(ObjectiveC)

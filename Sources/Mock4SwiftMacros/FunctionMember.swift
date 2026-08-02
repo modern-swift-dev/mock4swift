@@ -32,7 +32,8 @@ struct FunctionMember {
             }
             let external = parameter.firstName.text
             let local = parameter.secondName?.text ?? (external == "_" ? "argument\(position)" : external)
-            var type = opaqueParameter(at: position)?.name ?? rewriteType(parameter.type.trimmedDescription, replacements: replacements, mockType: mockType)
+            var type = opaqueParameter(at: position)?.name
+                ?? strippingEscapingAttribute(from: rewriteType(parameter.type.trimmedDescription, replacements: replacements, mockType: mockType))
             if parameter.ellipsis != nil {
                 type = "[\(type)]"
             }
