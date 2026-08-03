@@ -276,6 +276,7 @@ final class MockableMacroTests: XCTestCase {
         )
 
         XCTAssertTrue(source.contains("public final class ServiceMock: Service, Mock, InOrderMock, _Mock4SwiftExhaustiveMock, StaticMock, InOrderStaticMock, _Mock4SwiftExhaustiveStaticMock"))
+        XCTAssertTrue(source.contains("public init() {}"))
         XCTAssertTrue(source.contains("public var _mock4SwiftUnverifiedInvocations: [_Mock4SwiftInvocation]"))
         XCTAssertTrue(source.contains("public static var _mock4SwiftUnverifiedInvocations: [_Mock4SwiftInvocation]"))
         XCTAssertTrue(source.contains("StaticMockRegistry.shared.unverifiedInvocations(owner: Self.self)"))

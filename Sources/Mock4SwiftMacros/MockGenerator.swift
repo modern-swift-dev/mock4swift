@@ -264,7 +264,7 @@ struct MockGenerator {
         let unverifiedExpression = unverifiedChannels.isEmpty ? "[]" : unverifiedChannels.joined(separator: " + ")
         let unverifiedInvocations = "    \(access)\(isolation)var _mock4SwiftUnverifiedInvocations: [_Mock4SwiftInvocation] { \(unverifiedExpression) }\n\n"
         let staticConformance = staticMembers.isEmpty ? "" : ", StaticMock, InOrderStaticMock, _Mock4SwiftExhaustiveStaticMock"
-        let defaultInitializer: String = if initializers.isEmpty, accessOverride != nil {
+        let defaultInitializer: String = if initializers.isEmpty, accessOverride != nil || !access.isEmpty {
             isObjectiveC
                 ? "    \(access)override init() { super.init() }\n\n"
                 : "    \(access)init() {}\n\n"
