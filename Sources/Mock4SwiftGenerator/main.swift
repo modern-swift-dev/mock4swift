@@ -176,35 +176,16 @@ private final class Scanner {
     private var aliases: [DeclarationID: [AliasRecord]] = [:]
 
     init(arguments: Arguments) throws {
-        targetModule = arguments.targetModule
+        let targetModule = arguments.targetModule
+        self.targetModule = targetModule
         availableSourceModules = Set(arguments.modules.map(\.name))
 
-        var parsed: [SourceUnit] = []
-        for module in arguments.modules.sorted(by: { $0.name < $1.name }) {
-            for path in module.paths.sorted() {
-                let url = URL(fileURLWithPath: path)
-                let source: String
-                do {
-                    source = try String(contentsOf: url, encoding: .utf8)
-                } catch {
-                    throw GeneratorError.source(
-                        .init(path: path, line: 1, column: 1),
-                        "cannot read source: \(error.localizedDescription)"
-                    )
-                }
-                let tree = Parser.parse(source: source)
-                let imports = tree.statements.compactMap { $0.item.as(ImportDeclSyntax.self) }
-                parsed.append(
-                    SourceUnit(
-                        module: module.name,
-                        path: path,
-                        tree: tree,
-                        importedModules: Set(imports.compactMap { $0.path.first?.name.text }),
-                        imports: imports
-                    )
-                )
-            }
-        }
+        let sortedModules = arguments.modules.sorted(by: { $0.name < $1.name })
+        let targetInputs = sortedModules.filter { $0.name == targetModule }
+        let targetCandidates = try Self.parse(targetInputs, onlyMockableCandidates: true)
+        let parsed = try targetCandidates.contains(where: requiresDependencySources)
+            ? Self.parse(sortedModules)
+            : targetCandidates
         units = parsed
 
         for (unitIndex, unit) in units.enumerated() {
@@ -226,6 +207,42 @@ private final class Scanner {
                 }
             }
         }
+    }
+
+    private static func parse(
+        _ modules: [ModuleInput],
+        onlyMockableCandidates: Bool = false
+    ) throws -> [SourceUnit] {
+        var units: [SourceUnit] = []
+        for module in modules {
+            for path in module.paths.sorted() {
+                let url = URL(fileURLWithPath: path)
+                let source: String
+                do {
+                    source = try String(contentsOf: url, encoding: .utf8)
+                } catch {
+                    throw GeneratorError.source(
+                        .init(path: path, line: 1, column: 1),
+                        "cannot read source: \(error.localizedDescription)"
+                    )
+                }
+                if onlyMockableCandidates, !source.contains("Mockable") {
+                    continue
+                }
+                let tree = Parser.parse(source: source)
+                let imports = tree.statements.compactMap { $0.item.as(ImportDeclSyntax.self) }
+                units.append(
+                    SourceUnit(
+                        module: module.name,
+                        path: path,
+                        tree: tree,
+                        importedModules: Set(imports.compactMap { $0.path.first?.name.text }),
+                        imports: imports
+                    )
+                )
+            }
+        }
+        return units
     }
 
     func render() throws -> String {
@@ -515,6 +532,16 @@ private final class Scanner {
 
     private func sourceError(at record: AliasRecord, _ message: String) -> GeneratorError {
         .source(units[record.unit].location(of: record.declaration), message)
+    }
+}
+
+private func requiresDependencySources(_ unit: SourceUnit) -> Bool {
+    unit.tree.statements.contains {
+        guard let declaration = $0.item.as(ProtocolDeclSyntax.self) else {
+            return false
+        }
+        return hasAttribute(named: "Mockable", in: declaration.attributes)
+            && hasCustomInheritance(declaration)
     }
 }
 
