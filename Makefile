@@ -5,6 +5,7 @@ setup:
 	brew cleanup
 	brew autoremove
 	mint bootstrap
+	lefthook install
 
 lint:
 
