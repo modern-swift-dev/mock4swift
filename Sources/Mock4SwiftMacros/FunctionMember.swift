@@ -447,6 +447,16 @@ struct FunctionMember {
         )
     }
 
+    var callsFactory: String {
+        guard !isTransient else {
+            return ""
+        }
+        return method(
+            fluentSignature(arguments: matcherDeclarations, returning: "CallHistory<\(argumentsType)>", inferredFrom: "CallHistory<\(argumentsType)>"),
+            body: "\(registryResolution)return \(channelReference).callHistory(matching: \(matcherClosure))"
+        )
+    }
+
     var orderFactory: String {
         let labels = isTransient
             ? parameters.filter { $0.external != "_" }.map { "\($0.external): Void = ()" }.joined(separator: ", ")

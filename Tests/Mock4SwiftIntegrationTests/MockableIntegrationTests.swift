@@ -180,6 +180,13 @@ private struct Identifier: IdentifiedValue, Equatable {
     #expect(mock.unit == "C")
     mock.unit = "F"
 
+    let temperatureCalls = Calls(mock).temperature(for: .value("Toronto"))
+    #expect(temperatureCalls.count == 3)
+    #expect(temperatureCalls.arguments == ["Toronto", "Toronto", "Toronto"])
+    #expect(Calls(mock).greeting().count == 1)
+    #expect(Calls(mock).unit().count == 1)
+    #expect(Calls(mock).unit(set: .value("F")).count == 1)
+
     Verify(mock, 3).temperature(for: .capturing(cities))
     Verify(mock, 1).save(.value(7))
     Verify(mock, 1).greeting()
@@ -188,6 +195,23 @@ private struct Identifier: IdentifiedValue, Equatable {
     VerifyNoMoreInteractions(mock)
     #expect(cities.values == ["Toronto", "Toronto", "Toronto"])
     #expect(performedCities == ["Toronto", "Toronto", "Toronto"])
+}
+
+@Test private func generatedCallsCanWaitWithoutVerifying() async throws {
+    let mock = WeatherServiceMock()
+    Given(mock).temperature(for: .any).willReturn(20)
+    let calls = Calls(mock).temperature(for: .value("Toronto"))
+    let waiting = Task {
+        try await calls.waitForCount(1, timeout: .seconds(1))
+    }
+
+    await Task.yield()
+    _ = try await mock.temperature(for: "Toronto")
+    try await waiting.value
+    #expect(calls.arguments == ["Toronto"])
+
+    Verify(mock, 1).temperature(for: .value("Toronto"))
+    VerifyNoMoreInteractions(mock)
 }
 
 @Test private func generatedMockSupportsStaticMembersSubscriptsAndInitializers() {
@@ -204,6 +228,12 @@ private struct Identifier: IdentifiedValue, Equatable {
     AdvancedServiceMock.sharedValue = 11
     #expect(mock["answer"] == 42)
     mock["answer"] = 43
+
+    #expect(Calls(AdvancedServiceMock.self).make(.value(2)).arguments == [2])
+    #expect(Calls(AdvancedServiceMock.self).sharedValue().count == 1)
+    #expect(Calls(mock).subscriptGet(.value("answer")).arguments == ["answer"])
+    #expect(Calls(mock).subscriptSet(.value("answer"), value: .value(43)).count == 1)
+    #expect(Calls(mock).initializer(seed: .value(1)).arguments == [1])
 
     Verify(AdvancedServiceMock.self, 1).make(.value(2))
     Verify(AdvancedServiceMock.self, 1).sharedValue()

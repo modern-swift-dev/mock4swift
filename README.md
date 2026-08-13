@@ -99,6 +99,17 @@ resetMock(ServiceMock.self, scopes: [.stubs, .actions])
 Verification counts include integer literals, `.never`, `.exactly`, `.atLeast`, `.atMost`, and `.between`.
 Successful verification marks matching calls; `VerifyNoMoreInteractions` reports any calls not covered by successful verification.
 
+`Calls` provides an observational typed history without marking invocations as verified. Use it for synchronization or argument inspection, then verify separately:
+
+```swift
+let calls = Calls(weather).temperature(for: .value("Toronto"))
+try await calls.waitForCount(1, timeout: .seconds(1))
+let city = try calls.onlyArgument
+Verify(weather, 1).temperature(for: .value(city))
+```
+
+`waitForCount` requires an explicit timeout and throws `MockWaitError.timedOut` if the count is not reached.
+
 Strict in-order verification can span instance and static mocks:
 
 ```swift

@@ -37,7 +37,7 @@ final class MockableMacroTests: XCTestCase {
             expandedSource: """
             protocol Empty {}
 
-            final class EmptyMock: Empty, Mock, InOrderMock, _Mock4SwiftExhaustiveMock {
+            final class EmptyMock: Empty, Mock, InOrderMock, _Mock4SwiftExhaustiveMock, _Mock4SwiftCallInspectable {
                 fileprivate var _mock4SwiftOrderedInvocations: [_Mock4SwiftInvocation] {
                     []
                 }
@@ -56,6 +56,10 @@ final class MockableMacroTests: XCTestCase {
                     fileprivate let report: (VerificationResult) -> Void
                 }
 
+                struct Calls {
+                    fileprivate let mock: EmptyMock
+                }
+
                 struct OrderExpect {
                     fileprivate let mock: EmptyMock
                     fileprivate let order: InOrder
@@ -67,6 +71,9 @@ final class MockableMacroTests: XCTestCase {
 
                 func given() -> Given {
                     Given(mock: self)
+                }
+                func _mock4SwiftCalls() -> Calls {
+                    Calls(mock: self)
                 }
                 func perform() -> Perform {
                     Perform(mock: self)
@@ -289,7 +296,12 @@ final class MockableMacroTests: XCTestCase {
             """
         )
 
-        XCTAssertTrue(source.contains("public final class ServiceMock: Service, Mock, InOrderMock, _Mock4SwiftExhaustiveMock, StaticMock, InOrderStaticMock, _Mock4SwiftExhaustiveStaticMock"))
+        XCTAssertTrue(source
+            .contains(
+                "public final class ServiceMock: Service, Mock, InOrderMock, _Mock4SwiftExhaustiveMock, _Mock4SwiftCallInspectable, StaticMock, InOrderStaticMock, _Mock4SwiftExhaustiveStaticMock, _Mock4SwiftStaticCallInspectable"
+            ))
+        XCTAssertTrue(source.contains("public struct Calls"))
+        XCTAssertTrue(source.contains("public struct StaticCalls"))
         XCTAssertTrue(source.contains("public init() {}"))
         XCTAssertTrue(source.contains("public var _mock4SwiftUnverifiedInvocations: [_Mock4SwiftInvocation]"))
         XCTAssertTrue(source.contains("public static var _mock4SwiftUnverifiedInvocations: [_Mock4SwiftInvocation]"))
@@ -297,6 +309,32 @@ final class MockableMacroTests: XCTestCase {
         XCTAssertTrue(source.contains("markVerified: { sequence in mock._mock_load_0._mock4SwiftMarkVerified(sequence: sequence) }"))
         XCTAssertTrue(source.contains("markVerified: { sequence in mock._mock_value_get_1._mock4SwiftMarkVerified(sequence: sequence) }"))
         XCTAssertTrue(source.contains("markVerified: { sequence in mock._mock_subscript_get_"))
+    }
+
+    func testGeneratedMocksExposeTypedCallSelectors() throws {
+        let source = try peerSource(
+            """
+            protocol Service {
+                init(seed: Int)
+                static func load<Value>(_ value: Value) -> Value
+                var value: Int { get set }
+                subscript(_ key: String) -> Int { get set }
+                @MockNoncopyable func transient(_ value: consuming Token)
+            }
+            """
+        )
+
+        XCTAssertTrue(source.contains("_Mock4SwiftCallInspectable"))
+        XCTAssertTrue(source.contains("_Mock4SwiftStaticCallInspectable"))
+        XCTAssertTrue(source.contains("func _mock4SwiftCalls() -> Calls"))
+        XCTAssertTrue(source.contains("static func _mock4SwiftStaticCalls() -> StaticCalls"))
+        XCTAssertTrue(source.contains("func initializer(seed matching0: Parameter<Int>) -> CallHistory<Int>"))
+        XCTAssertTrue(source.contains("func value() -> CallHistory<Void>"))
+        XCTAssertTrue(source.contains("func value(set matching: Parameter<Int>) -> CallHistory<Int>"))
+        XCTAssertTrue(source.contains("func subscriptGet(_ matching0: Parameter<String>) -> CallHistory<String>"))
+        XCTAssertTrue(source.contains("func subscriptSet(_ matching0: Parameter<String>, value: Parameter<Int>) -> CallHistory<(key: String, newValue: Int)>"))
+        XCTAssertTrue(source.contains("func load<Value>(_ matching0: Parameter<Value>) -> CallHistory<Value>"))
+        XCTAssertFalse(source.contains("func transient(_ matching0: Parameter<Token>) -> CallHistory"))
     }
 
     func testGlobalActorAndAvailabilityArePreservedWithNonisolatedConfiguration() throws {
@@ -314,6 +352,7 @@ final class MockableMacroTests: XCTestCase {
         XCTAssertTrue(source.contains("nonisolated private let _mock_value_0"))
         XCTAssertTrue(source.contains("nonisolated func value"))
         XCTAssertTrue(source.contains("nonisolated func given"))
+        XCTAssertTrue(source.contains("nonisolated func _mock4SwiftCalls"))
     }
 
     func testStandaloneSelfRewritesToConcreteMock() throws {

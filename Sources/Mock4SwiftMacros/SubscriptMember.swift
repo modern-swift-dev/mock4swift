@@ -416,6 +416,17 @@ struct SubscriptMember {
         )
     }
 
+    var callsFactory: String {
+        guard !isTransient else {
+            return ""
+        }
+        let signature = "func \(kind == .get ? "subscriptGet" : "subscriptSet")\(genericClause)"
+        return declaration(
+            "\(signature)(\(factoryArguments(matcherDeclarations))) -> CallHistory<\(argumentsType)>\(whereClause)",
+            body: "\(registryResolution)return \(channelReference).callHistory(matching: \(matcherClosure))"
+        )
+    }
+
     var orderFactory: String {
         let signature = "func \(kind == .get ? "subscriptGet" : "subscriptSet")\(genericClause)"
         let arguments = isTransient ? "" : matcherDeclarations

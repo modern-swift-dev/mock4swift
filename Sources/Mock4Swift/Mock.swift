@@ -17,3 +17,9 @@ public protocol Mock: AnyObject {
 public protocol _Mock4SwiftExhaustiveMock: Mock {
     var _mock4SwiftUnverifiedInvocations: [_Mock4SwiftInvocation] { get }
 }
+
+/// Opt-in support for generated typed call-history selectors.
+public protocol _Mock4SwiftCallInspectable: Mock {
+    associatedtype Calls
+    func _mock4SwiftCalls() -> Calls
+}

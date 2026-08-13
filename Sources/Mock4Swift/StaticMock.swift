@@ -17,3 +17,9 @@ public protocol StaticMock {
 public protocol _Mock4SwiftExhaustiveStaticMock: StaticMock {
     static var _mock4SwiftUnverifiedInvocations: [_Mock4SwiftInvocation] { get }
 }
+
+/// Opt-in support for generated typed static call-history selectors.
+public protocol _Mock4SwiftStaticCallInspectable: StaticMock {
+    associatedtype StaticCalls
+    static func _mock4SwiftStaticCalls() -> StaticCalls
+}

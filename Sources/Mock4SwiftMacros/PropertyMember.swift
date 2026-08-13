@@ -275,6 +275,24 @@ struct PropertyMember {
         }
     }
 
+    var callsFactory: String {
+        guard !isTransient else {
+            return ""
+        }
+        switch kind {
+            case .get:
+                return declaration(
+                    "func \(name)() -> CallHistory<Void>",
+                    body: "\(registryResolution)return \(channelReference).callHistory(matching: { _ in true })"
+                )
+            case .set:
+                return declaration(
+                    "func \(name)(set matching: Parameter<\(type)>) -> CallHistory<\(type)>",
+                    body: "\(registryResolution)return \(channelReference).callHistory(matching: { matching.matches($0) })"
+                )
+        }
+    }
+
     var orderFactory: String {
         let signature: String
         let matches: String

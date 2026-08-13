@@ -236,10 +236,12 @@ struct MockGenerator {
         let witnesses = (memberWitnesses + (initializerWitnesses.isEmpty ? [] : [initializerWitnesses])).joined(separator: "\n\n")
         let givenFactories = instance.map(\.givenFactory).joined(separator: "\n\n")
         let verifyFactories = (instance.map(\.verifyFactory) + initializers.map(\.verifyFactory)).joined(separator: "\n\n")
+        let callsFactories = (instance.map(\.callsFactory) + initializers.map(\.callsFactory)).filter { !$0.isEmpty }.joined(separator: "\n\n")
         let orderFactories = (instance.map(\.orderFactory) + initializers.map(\.orderFactory)).joined(separator: "\n\n")
         let performFactories = instance.map(\.performFactory).joined(separator: "\n\n")
         let staticGivenFactories = staticMembers.map(\.givenFactory).joined(separator: "\n\n")
         let staticVerifyFactories = staticMembers.map(\.verifyFactory).joined(separator: "\n\n")
+        let staticCallsFactories = staticMembers.map(\.callsFactory).filter { !$0.isEmpty }.joined(separator: "\n\n")
         let staticOrderFactories = staticMembers.map(\.orderFactory).joined(separator: "\n\n")
         let staticPerformFactories = staticMembers.map(\.performFactory).joined(separator: "\n\n")
         let resets = (instance.filter { !$0.usesRegistry }.map { "        \($0.channelName).reset(scopes)" } + initializers.filter { !$0.usesRegistry }
@@ -263,7 +265,7 @@ struct MockGenerator {
             + (needsGenericRegistry ? ["_genericMockRegistry.unverifiedInvocations"] : [])
         let unverifiedExpression = unverifiedChannels.isEmpty ? "[]" : unverifiedChannels.joined(separator: " + ")
         let unverifiedInvocations = "    \(access)\(isolation)var _mock4SwiftUnverifiedInvocations: [_Mock4SwiftInvocation] { \(unverifiedExpression) }\n\n"
-        let staticConformance = staticMembers.isEmpty ? "" : ", StaticMock, InOrderStaticMock, _Mock4SwiftExhaustiveStaticMock"
+        let staticConformance = staticMembers.isEmpty ? "" : ", StaticMock, InOrderStaticMock, _Mock4SwiftExhaustiveStaticMock, _Mock4SwiftStaticCallInspectable"
         let defaultInitializer: String = if initializers.isEmpty, accessOverride != nil || !access.isEmpty {
             isObjectiveC
                 ? "    \(access)override init() { super.init() }\n\n"
@@ -288,6 +290,12 @@ struct MockGenerator {
         \(staticVerifyFactories)
             }
 
+            \(access)struct StaticCalls {
+                fileprivate let mock: \(mockType).Type
+
+        \(staticCallsFactories)
+            }
+
             \(access)struct StaticOrderExpect {
                 fileprivate let mock: \(mockType).Type
                 fileprivate let order: InOrder
@@ -302,6 +310,7 @@ struct MockGenerator {
             }
 
             \(access)\(isolation)static func given() -> StaticGiven { StaticGiven(mock: self) }
+            \(access)\(isolation)static func _mock4SwiftStaticCalls() -> StaticCalls { StaticCalls(mock: self) }
             \(access)\(isolation)static func perform() -> StaticPerform { StaticPerform(mock: self) }
             \(access)\(isolation)static func orderExpectations(in order: InOrder) -> StaticOrderExpect {
                 StaticOrderExpect(mock: self, order: order)
@@ -321,7 +330,7 @@ struct MockGenerator {
         """
 
         let superclass = isObjectiveC ? "Foundation.NSObject, " : ""
-        return attributePrefix + access + "final \(kind) \(mockType)\(generics): \(superclass)\(conformanceType), Mock, InOrderMock, _Mock4SwiftExhaustiveMock\(staticConformance)\(mockWhere) {\n"
+        return attributePrefix + access + "final \(kind) \(mockType)\(generics): \(superclass)\(conformanceType), Mock, InOrderMock, _Mock4SwiftExhaustiveMock, _Mock4SwiftCallInspectable\(staticConformance)\(mockWhere) {\n"
             + typealiasSection
             + genericRegistry
             + orderedInvocations
@@ -336,6 +345,9 @@ struct MockGenerator {
             + "        fileprivate let count: Count\n"
             + "        fileprivate let report: (VerificationResult) -> Void\(verifySection)\n"
             + "    }\n\n"
+            + "    \(access)struct Calls {\n"
+            + "        fileprivate let mock: \(mockType)\(callsFactories.isEmpty ? "" : "\n\n" + callsFactories)\n"
+            + "    }\n\n"
             + "    \(access)struct OrderExpect {\n"
             + "        fileprivate let mock: \(mockType)\n"
             + "        fileprivate let order: InOrder\(orderSection)\n"
@@ -344,6 +356,7 @@ struct MockGenerator {
             + "        fileprivate let mock: \(mockType)\(performSection)\n"
             + "    }\n\n"
             + "    \(access)\(isolation)func given() -> Given { Given(mock: self) }\n"
+            + "    \(access)\(isolation)func _mock4SwiftCalls() -> Calls { Calls(mock: self) }\n"
             + "    \(access)\(isolation)func perform() -> Perform { Perform(mock: self) }\n"
             + "    \(access)\(isolation)func orderExpectations(in order: InOrder) -> OrderExpect {\n"
             + "        OrderExpect(mock: self, order: order)\n"
@@ -371,16 +384,16 @@ struct MockGenerator {
             if let variable = item.decl.as(VariableDeclSyntax.self),
                let identifier = variable.bindings.first?.pattern.as(IdentifierPatternSyntax.self)?.identifier.text,
                identifier.hasPrefix("_mock_") || identifier == "_genericMockRegistry"
-                   || identifier == "_mock4SwiftOrderedInvocations"
-                   || identifier == "_mock4SwiftUnverifiedInvocations" {
+               || identifier == "_mock4SwiftOrderedInvocations"
+               || identifier == "_mock4SwiftUnverifiedInvocations" {
                 return item.decl
             }
             if let structure = item.decl.as(StructDeclSyntax.self),
-               ["Given", "Verify", "OrderExpect", "Perform", "StaticGiven", "StaticVerify", "StaticOrderExpect", "StaticPerform"].contains(structure.name.text) {
+               ["Given", "Verify", "Calls", "OrderExpect", "Perform", "StaticGiven", "StaticVerify", "StaticCalls", "StaticOrderExpect", "StaticPerform"].contains(structure.name.text) {
                 return item.decl
             }
             if let function = item.decl.as(FunctionDeclSyntax.self),
-               ["given", "perform", "orderExpectations", "verification", "resetMock"].contains(function.name.text) {
+               ["given", "_mock4SwiftCalls", "perform", "orderExpectations", "verification", "resetMock", "_mock4SwiftStaticCalls"].contains(function.name.text) {
                 return item.decl
             }
             return nil

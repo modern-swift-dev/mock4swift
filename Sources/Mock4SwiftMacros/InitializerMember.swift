@@ -198,6 +198,23 @@ struct InitializerMember {
         """
     }
 
+    var callsFactory: String {
+        guard !isTransient else {
+            return ""
+        }
+        let availabilityPrefix = availability.isEmpty ? "" : availability.split(separator: "\n").map { "        " + $0 }.joined(separator: "\n") + "\n"
+        return availabilityPrefix + """
+                \(access)\(factoryIsolation)func initializer\(genericClause)(\(matcherDeclarations)) -> CallHistory<\(argumentsType)>\(declaration.genericWhereClause
+            .map { " " + rewriteType(
+                $0.trimmedDescription,
+                replacements: replacements,
+                mockType: mockType
+            ) } ?? "") {
+                    \(registryResolution)return \(channelReference).callHistory(matching: \(matcherClosure))
+                }
+        """
+    }
+
     var orderFactory: String {
         let availabilityPrefix = availability.isEmpty ? "" : availability.split(separator: "\n").map { "        " + $0 }.joined(separator: "\n") + "\n"
         if isTransient {

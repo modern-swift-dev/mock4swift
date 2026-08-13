@@ -2,6 +2,12 @@ import Foundation
 
 /// Thread-safe runtime channel that records invocations and selects matching actions and stubs.
 public final class MockMember<Arguments, Ephemeral, Output>: @unchecked Sendable {
+    private final class InvocationWaiter: @unchecked Sendable {
+        var id: UInt64?
+        var continuation: CheckedContinuation<Void, any Error>?
+        var cancelled = false
+    }
+
     private struct Stub {
         let id: UInt64
         let matches: (Arguments) -> Bool
@@ -39,14 +45,16 @@ public final class MockMember<Arguments, Ephemeral, Output>: @unchecked Sendable
     private var actionStubs: [ActionStub] = []
     private var nextOutcome: [UInt64: Int] = [:]
     private var nextID: UInt64 = 0
+    private var invocationGeneration: UInt64 = 0
+    private var nextWaiterID: UInt64 = 0
+    private var invocationWaiters: [UInt64: InvocationWaiter] = [:]
     private let name: String
 
     public init(name: String = "member") {
         self.name = name
     }
 
-    @discardableResult
-    public func addStub(
+    @discardableResult public func addStub(
         matching: @escaping (Arguments) -> Bool,
         specificity: Int = 0,
         outcomes: [StubOutcome<Arguments, Ephemeral, Output>]
@@ -122,10 +130,12 @@ public final class MockMember<Arguments, Ephemeral, Output>: @unchecked Sendable
 
     public func invoke(_ arguments: Arguments, ephemeral: borrowing Ephemeral) throws -> Output {
         let sequence = nextMockInvocationSequence()
-        let snapshot = lock.withLock { () -> ([Action], [Stub], [ActionStub]) in
+        let (snapshot, waiters) = lock.withLock { () -> (([Action], [Stub], [ActionStub]), [CheckedContinuation<Void, any Error>]) in
             invocations.append(.init(sequence: sequence, arguments: arguments))
-            return (actions, stubs, actionStubs)
+            invocationGeneration &+= 1
+            return ((actions, stubs, actionStubs), drainInvocationWaiters())
         }
+        waiters.forEach { $0.resume() }
 
         let matchingActionStubs = snapshot.2.filter { $0.matches(arguments) }
         let action = bestAction(in: snapshot.0, arguments: arguments)
@@ -139,7 +149,9 @@ public final class MockMember<Arguments, Ephemeral, Output>: @unchecked Sendable
         let stub = bestStub(in: snapshot.1, arguments: arguments)
         let actionStubOutcome = bestActionStub(in: matchingActionStubs, forAction: false)
         let selected: (id: UInt64, outcomes: [StubOutcome<Arguments, Ephemeral, Output>])? = if let actionStubOutcome,
-                                                                          stub.map({ wins(actionStubOutcome.specificity, actionStubOutcome.id, over: $0.specificity, $0.id) }) ?? true {
+                                                                                                stub
+                                                                                                .map({ wins(actionStubOutcome.specificity, actionStubOutcome.id, over: $0.specificity, $0.id) }) ??
+                                                                                                true {
             (actionStubOutcome.id, actionStubOutcome.outcomes)
         } else if let stub {
             (stub.id, stub.outcomes)
@@ -165,10 +177,12 @@ public final class MockMember<Arguments, Ephemeral, Output>: @unchecked Sendable
 
     public func invokeAsync(_ arguments: Arguments, ephemeral: borrowing Ephemeral) async throws -> Output {
         let sequence = nextMockInvocationSequence()
-        let snapshot = lock.withLock { () -> ([Action], [Stub], [ActionStub]) in
+        let (snapshot, waiters) = lock.withLock { () -> (([Action], [Stub], [ActionStub]), [CheckedContinuation<Void, any Error>]) in
             invocations.append(.init(sequence: sequence, arguments: arguments))
-            return (actions, stubs, actionStubs)
+            invocationGeneration &+= 1
+            return ((actions, stubs, actionStubs), drainInvocationWaiters())
         }
+        waiters.forEach { $0.resume() }
 
         let matchingActionStubs = snapshot.2.filter { $0.matches(arguments) }
         let action = bestAction(in: snapshot.0, arguments: arguments)
@@ -182,7 +196,9 @@ public final class MockMember<Arguments, Ephemeral, Output>: @unchecked Sendable
         let stub = bestStub(in: snapshot.1, arguments: arguments)
         let actionStubOutcome = bestActionStub(in: matchingActionStubs, forAction: false)
         let selected: (id: UInt64, outcomes: [StubOutcome<Arguments, Ephemeral, Output>])? = if let actionStubOutcome,
-                                                                                              stub.map({ wins(actionStubOutcome.specificity, actionStubOutcome.id, over: $0.specificity, $0.id) }) ?? true {
+                                                                                                stub
+                                                                                                .map({ wins(actionStubOutcome.specificity, actionStubOutcome.id, over: $0.specificity, $0.id) }) ??
+                                                                                                true {
             (actionStubOutcome.id, actionStubOutcome.outcomes)
         } else if let stub {
             (stub.id, stub.outcomes)
@@ -207,7 +223,26 @@ public final class MockMember<Arguments, Ephemeral, Output>: @unchecked Sendable
 
     public func record(_ arguments: Arguments) {
         let sequence = nextMockInvocationSequence()
-        lock.withLock { invocations.append(.init(sequence: sequence, arguments: arguments)) }
+        let waiters = lock.withLock { () -> [CheckedContinuation<Void, any Error>] in
+            invocations.append(.init(sequence: sequence, arguments: arguments))
+            invocationGeneration &+= 1
+            return drainInvocationWaiters()
+        }
+        waiters.forEach { $0.resume() }
+    }
+
+    /// Returns a typed, observational history for invocations matching `matching`.
+    public func callHistory(matching: @escaping (Arguments) -> Bool) -> CallHistory<Arguments> {
+        CallHistory(
+            member: name,
+            snapshot: { [self] in
+                let snapshot = callHistorySnapshot()
+                return (snapshot.generation, snapshot.arguments.filter(matching))
+            },
+            waitForChange: { [self] generation in
+                try await waitForInvocationChange(after: generation)
+            }
+        )
     }
 
     public func invocationCount(matching: @escaping (Arguments) -> Bool) -> Int {
@@ -261,10 +296,11 @@ public final class MockMember<Arguments, Ephemeral, Output>: @unchecked Sendable
 
     public func reset(_ scopes: [MockScope] = Array(MockScope.all)) {
         let scopes = Set(scopes)
-        lock.withLock {
+        let waiters = lock.withLock { () -> [CheckedContinuation<Void, any Error>] in
             if scopes.contains(.invocations) {
                 invocations.removeAll()
                 verifiedSequences.removeAll()
+                invocationGeneration &+= 1
             }
             if scopes.contains(.stubs) {
                 stubs.removeAll()
@@ -280,7 +316,9 @@ public final class MockMember<Arguments, Ephemeral, Output>: @unchecked Sendable
                 }
             }
             actionStubs.removeAll { !$0.actionEnabled && !$0.stubEnabled }
+            return scopes.contains(.invocations) ? drainInvocationWaiters() : []
         }
+        waiters.forEach { $0.resume() }
     }
 
     private func bestAction(in candidates: [Action], arguments: Arguments) -> Action? {
@@ -339,5 +377,50 @@ public final class MockMember<Arguments, Ephemeral, Output>: @unchecked Sendable
             let currentSequences = Set(invocations.map(\.sequence))
             verifiedSequences.formUnion(sequences.filter(currentSequences.contains))
         }
+    }
+
+    private func callHistorySnapshot() -> (generation: UInt64, arguments: [Arguments]) {
+        lock.withLock { (invocationGeneration, invocations.map(\.arguments)) }
+    }
+
+    private func waitForInvocationChange(after generation: UInt64) async throws {
+        let waiter = InvocationWaiter()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let immediate: Result<Void, any Error>? = lock.withLock {
+                    if waiter.cancelled {
+                        return .failure(CancellationError())
+                    }
+                    guard invocationGeneration == generation else {
+                        return .success(())
+                    }
+                    nextWaiterID &+= 1
+                    waiter.id = nextWaiterID
+                    waiter.continuation = continuation
+                    invocationWaiters[nextWaiterID] = waiter
+                    return nil
+                }
+                switch immediate {
+                    case .success?: continuation.resume()
+                    case let .failure(error)?: continuation.resume(throwing: error)
+                    case nil: break
+                }
+            }
+        } onCancel: {
+            let continuation = lock.withLock { () -> CheckedContinuation<Void, any Error>? in
+                waiter.cancelled = true
+                guard let id = waiter.id, invocationWaiters.removeValue(forKey: id) != nil else {
+                    return nil
+                }
+                return waiter.continuation
+            }
+            continuation?.resume(throwing: CancellationError())
+        }
+    }
+
+    private func drainInvocationWaiters() -> [CheckedContinuation<Void, any Error>] {
+        let continuations = invocationWaiters.values.compactMap(\.continuation)
+        invocationWaiters.removeAll()
+        return continuations
     }
 }

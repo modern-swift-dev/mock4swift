@@ -23,6 +23,14 @@ public func Given<M: StaticMock>(_ type: M.Type) -> M.StaticGiven {
     type.given()
 }
 
+public func Calls<M: _Mock4SwiftCallInspectable>(_ mock: M) -> M.Calls {
+    mock._mock4SwiftCalls()
+}
+
+public func Calls<M: _Mock4SwiftStaticCallInspectable>(_ type: M.Type) -> M.StaticCalls {
+    type._mock4SwiftStaticCalls()
+}
+
 public func Perform<M: Mock>(_ mock: M) -> M.Perform {
     mock.perform()
 }
