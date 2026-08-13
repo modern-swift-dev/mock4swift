@@ -28,6 +28,19 @@ public enum StubOutcome<Arguments, Ephemeral, Output> {
     ) -> Self {
         .asyncAnswer(answer)
     }
+
+    static func suspending<Failure: Error>(
+        on pending: PendingCall<Arguments, Output, Failure>,
+        cancellation: PendingCancellationPolicy<Failure>
+    ) -> Self {
+        let failure: Failure? = switch cancellation {
+            case .ignore: nil
+            case let .fail(with: failure): failure
+        }
+        return .asyncAnswer { arguments in
+            try await pending.suspend(arguments, cancellationFailure: failure)
+        }
+    }
 }
 
 public struct _Mock4SwiftStubRegistration<Arguments, Ephemeral, Output> {

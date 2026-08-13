@@ -347,6 +347,28 @@ struct SubscriptMember {
     var givenFactory: String {
         switch kind {
             case .get:
+                if isAsync, !isTransient {
+                    let failure = isThrowing ? (typedError ?? "any Error") : "Never"
+                    let typeName = isThrowing ? "_Mock4SwiftAsyncThrowingReturnStub" : "_Mock4SwiftAsyncReturnStub"
+                    let genericTypes = [argumentsType, "Void", valueType] + (isThrowing ? [failure] : []) + [answerType]
+                    let handle = "\(typeName)<\(genericTypes.joined(separator: ", "))>"
+                    let success = valueType == "Void"
+                        ? "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: [.returnValue(())])\n                        "
+                        : ""
+                    return declaration(
+                        "func subscriptGet\(genericClause)(\(factoryArguments(matcherDeclarations, inferredFrom: handle))) -> \(handle)\(whereClause)",
+                        body: """
+                        \(success)return \(handle)(
+                            member: "\(displayName)",
+                            apply: { outcomes in
+                                \(registryResolution)return \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: outcomes)
+                            },
+                            answer: \(answerAdapter)
+                        )
+                        """,
+                        attribute: valueType == "Void" ? "@discardableResult" : nil
+                    )
+                }
                 if valueType == "Void" {
                     let successOutcome = isTransient ? "[.producing { () }]" : "[.returnValue(())]"
                     let success = "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: \(successOutcome))"

@@ -206,6 +206,27 @@ struct PropertyMember {
     var givenFactory: String {
         switch kind {
             case .get:
+                if isAsync, !isTransient {
+                    let failure = isThrowing ? (typedError ?? "any Error") : "Never"
+                    let typeName = isThrowing ? "_Mock4SwiftAsyncThrowingReturnStub" : "_Mock4SwiftAsyncReturnStub"
+                    let genericTypes = ["Void", "Void", type] + (isThrowing ? [failure] : []) + [answerType]
+                    let handle = "\(typeName)<\(genericTypes.joined(separator: ", "))>"
+                    let success = type == "Void"
+                        ? "\(registryResolution)\(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: [.returnValue(())])\n                        "
+                        : ""
+                    return declaration(
+                        "var \(name): \(handle)",
+                        body: """
+                        \(success)return \(handle)(
+                            member: "\(displayName)",
+                            apply: { outcomes in
+                                \(registryResolution)return \(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: outcomes)
+                            },
+                            answer: \(answerAdapter)
+                        )
+                        """
+                    )
+                }
                 if type == "Void" {
                     let successOutcome = isTransient ? "[.producing { () }]" : "[.returnValue(())]"
                     let success = "\(registryResolution)\(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: \(successOutcome))"

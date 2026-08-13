@@ -1,3 +1,308 @@
+/// Builder used only by retained async requirements.
+public struct _Mock4SwiftAsyncReturnStub<Arguments, Ephemeral, Output, Answer> {
+    private let apply: ([StubOutcome<Arguments, Ephemeral, Output>]) -> _Mock4SwiftStubRegistration<Arguments, Ephemeral, Output>
+    private let answerOutcome: (Answer) -> StubOutcome<Arguments, Ephemeral, Output>
+    private let member: String
+
+    public init(
+        member: String,
+        apply: @escaping ([StubOutcome<Arguments, Ephemeral, Output>]) -> _Mock4SwiftStubRegistration<Arguments, Ephemeral, Output>,
+        answer: @escaping (Answer) -> StubOutcome<Arguments, Ephemeral, Output>
+    ) {
+        self.member = member
+        self.apply = apply
+        answerOutcome = answer
+    }
+
+    @discardableResult public func willReturn(_ values: Output...) -> _Mock4SwiftAsyncReturnSequence<Arguments, Ephemeral, Output, Answer> {
+        .init(registration: apply(values.map(StubOutcome.returning)), answer: answerOutcome, member: member)
+    }
+
+    @discardableResult public func willSucceed() -> _Mock4SwiftAsyncReturnSequence<Arguments, Ephemeral, Output, Answer> where Output == Void {
+        .init(registration: apply([.returning(())]), answer: answerOutcome, member: member)
+    }
+
+    @discardableResult public func willAnswer(_ answer: Answer) -> _Mock4SwiftAsyncReturnSequence<Arguments, Ephemeral, Output, Answer> {
+        .init(registration: apply([answerOutcome(answer)]), answer: answerOutcome, member: member)
+    }
+
+    @discardableResult public func willSuspend(
+        cancellation: PendingCancellationPolicy<Never> = .ignore
+    ) -> _Mock4SwiftPendingSequence<Arguments, Ephemeral, Output, Answer> {
+        let pending = PendingCall<Arguments, Output, Never>(member: member)
+        let registration = apply([.suspending(on: pending, cancellation: cancellation)])
+        return .init(pending: pending, registration: registration, answer: answerOutcome, member: member)
+    }
+}
+
+public struct _Mock4SwiftAsyncReturnSequence<Arguments, Ephemeral, Output, Answer> {
+    private let registration: _Mock4SwiftStubRegistration<Arguments, Ephemeral, Output>
+    private let answerOutcome: (Answer) -> StubOutcome<Arguments, Ephemeral, Output>
+    private let member: String
+
+    public init(
+        registration: _Mock4SwiftStubRegistration<Arguments, Ephemeral, Output>,
+        answer: @escaping (Answer) -> StubOutcome<Arguments, Ephemeral, Output>,
+        member: String
+    ) {
+        self.registration = registration
+        answerOutcome = answer
+        self.member = member
+    }
+
+    @discardableResult public func thenReturn(_ values: Output...) -> Self {
+        registration.append(values.map(StubOutcome.returning))
+        return self
+    }
+
+    @discardableResult public func thenSucceed() -> Self where Output == Void {
+        registration.append([.returning(())])
+        return self
+    }
+
+    @discardableResult public func thenAnswer(_ answer: Answer) -> Self {
+        registration.append([answerOutcome(answer)])
+        return self
+    }
+
+    @discardableResult public func thenSuspend(
+        cancellation: PendingCancellationPolicy<Never> = .ignore
+    ) -> _Mock4SwiftPendingSequence<Arguments, Ephemeral, Output, Answer> {
+        let pending = PendingCall<Arguments, Output, Never>(member: member)
+        registration.append([.suspending(on: pending, cancellation: cancellation)])
+        return .init(pending: pending, registration: registration, answer: answerOutcome, member: member)
+    }
+}
+
+public struct _Mock4SwiftPendingSequence<Arguments, Ephemeral, Output, Answer>: @unchecked Sendable {
+    private let pending: PendingCall<Arguments, Output, Never>
+    private let registration: _Mock4SwiftStubRegistration<Arguments, Ephemeral, Output>
+    private let answerOutcome: (Answer) -> StubOutcome<Arguments, Ephemeral, Output>
+    private let member: String
+
+    public init(
+        pending: PendingCall<Arguments, Output, Never>,
+        registration: _Mock4SwiftStubRegistration<Arguments, Ephemeral, Output>,
+        answer: @escaping (Answer) -> StubOutcome<Arguments, Ephemeral, Output>,
+        member: String
+    ) {
+        self.pending = pending
+        self.registration = registration
+        answerOutcome = answer
+        self.member = member
+    }
+
+    public var callCount: Int {
+        pending.callCount
+    }
+
+    public var arguments: [Arguments] {
+        pending.arguments
+    }
+
+    public func waitUntilCalled(count: Int = 1, timeout: Duration) async throws {
+        try await pending.waitUntilCalled(count: count, timeout: timeout)
+    }
+
+    public func resume(returning output: sending Output) {
+        pending.resume(returning: output)
+    }
+
+    public func resume() where Output == Void {
+        pending.resume()
+    }
+
+    @discardableResult public func thenReturn(_ values: Output...) -> Self {
+        registration.append(values.map(StubOutcome.returning)); return self
+    }
+
+    @discardableResult public func thenSucceed() -> Self where Output == Void {
+        registration.append([.returning(())]); return self
+    }
+
+    @discardableResult public func thenAnswer(_ answer: Answer) -> Self {
+        registration.append([answerOutcome(answer)]); return self
+    }
+
+    @discardableResult public func thenSuspend(
+        cancellation: PendingCancellationPolicy<Never> = .ignore
+    ) -> _Mock4SwiftPendingSequence<Arguments, Ephemeral, Output, Answer> {
+        let pending = PendingCall<Arguments, Output, Never>(member: member)
+        registration.append([.suspending(on: pending, cancellation: cancellation)])
+        return .init(pending: pending, registration: registration, answer: answerOutcome, member: member)
+    }
+}
+
+/// Builder used only by retained async throwing requirements.
+public struct _Mock4SwiftAsyncThrowingReturnStub<Arguments, Ephemeral, Output, Failure: Error, Answer> {
+    private let apply: ([StubOutcome<Arguments, Ephemeral, Output>])
+        -> _Mock4SwiftStubRegistration<Arguments, Ephemeral, Output>
+    private let answerOutcome: (Answer) -> StubOutcome<Arguments, Ephemeral, Output>
+    private let member: String
+
+    public init(
+        member: String,
+        apply: @escaping ([StubOutcome<Arguments, Ephemeral, Output>])
+            -> _Mock4SwiftStubRegistration<Arguments, Ephemeral, Output>,
+        answer: @escaping (Answer) -> StubOutcome<Arguments, Ephemeral, Output>
+    ) {
+        self.member = member
+        self.apply = apply
+        answerOutcome = answer
+    }
+
+    @discardableResult public func willReturn(_ values: Output...) -> _Mock4SwiftAsyncThrowingReturnSequence<Arguments, Ephemeral, Output, Failure, Answer> {
+        makeSequence(apply(values.map(StubOutcome.returning)))
+    }
+
+    @discardableResult public func willSucceed() -> _Mock4SwiftAsyncThrowingReturnSequence<Arguments, Ephemeral, Output, Failure, Answer> where Output == Void {
+        makeSequence(apply([.returning(())]))
+    }
+
+    @discardableResult public func willThrow(_ error: Failure, _ errors: Failure...) -> _Mock4SwiftAsyncThrowingReturnSequence<Arguments, Ephemeral, Output, Failure, Answer> {
+        makeSequence(apply(([error] + errors).map(StubOutcome.throwing)))
+    }
+
+    @discardableResult public func willAnswer(_ answer: Answer) -> _Mock4SwiftAsyncThrowingReturnSequence<Arguments, Ephemeral, Output, Failure, Answer> {
+        makeSequence(apply([answerOutcome(answer)]))
+    }
+
+    @discardableResult public func willSuspend(
+        cancellation: PendingCancellationPolicy<Failure> = .ignore
+    ) -> _Mock4SwiftThrowingPendingSequence<Arguments, Ephemeral, Output, Failure, Answer> {
+        let pending = PendingCall<Arguments, Output, Failure>(member: member)
+        let registration = apply([.suspending(on: pending, cancellation: cancellation)])
+        return .init(
+            pending: pending,
+            registration: registration,
+            answer: answerOutcome,
+            member: member
+        )
+    }
+
+    private func makeSequence(
+        _ registration: _Mock4SwiftStubRegistration<Arguments, Ephemeral, Output>
+    ) -> _Mock4SwiftAsyncThrowingReturnSequence<Arguments, Ephemeral, Output, Failure, Answer> {
+        .init(registration: registration, answer: answerOutcome, member: member)
+    }
+}
+
+public struct _Mock4SwiftAsyncThrowingReturnSequence<Arguments, Ephemeral, Output, Failure: Error, Answer> {
+    private let registration: _Mock4SwiftStubRegistration<Arguments, Ephemeral, Output>
+    private let answerOutcome: (Answer) -> StubOutcome<Arguments, Ephemeral, Output>
+    private let member: String
+
+    public init(
+        registration: _Mock4SwiftStubRegistration<Arguments, Ephemeral, Output>,
+        answer: @escaping (Answer) -> StubOutcome<Arguments, Ephemeral, Output>,
+        member: String
+    ) {
+        self.registration = registration
+        answerOutcome = answer
+        self.member = member
+    }
+
+    @discardableResult public func thenReturn(_ values: Output...) -> Self {
+        registration.append(values.map(StubOutcome.returning))
+        return self
+    }
+
+    @discardableResult public func thenSucceed() -> Self where Output == Void {
+        registration.append([.returning(())])
+        return self
+    }
+
+    @discardableResult public func thenThrow(_ error: Failure, _ errors: Failure...) -> Self {
+        registration.append(([error] + errors).map(StubOutcome.throwing))
+        return self
+    }
+
+    @discardableResult public func thenAnswer(_ answer: Answer) -> Self {
+        registration.append([answerOutcome(answer)])
+        return self
+    }
+
+    @discardableResult public func thenSuspend(
+        cancellation: PendingCancellationPolicy<Failure> = .ignore
+    ) -> _Mock4SwiftThrowingPendingSequence<Arguments, Ephemeral, Output, Failure, Answer> {
+        let pending = PendingCall<Arguments, Output, Failure>(member: member)
+        registration.append([.suspending(on: pending, cancellation: cancellation)])
+        return .init(pending: pending, registration: registration, answer: answerOutcome, member: member)
+    }
+}
+
+/// A sequence handle that forwards control operations to its pending call.
+public struct _Mock4SwiftThrowingPendingSequence<Arguments, Ephemeral, Output, Failure: Error, Answer>: @unchecked Sendable {
+    private let pending: PendingCall<Arguments, Output, Failure>
+    private let registration: _Mock4SwiftStubRegistration<Arguments, Ephemeral, Output>
+    private let answerOutcome: (Answer) -> StubOutcome<Arguments, Ephemeral, Output>
+    private let member: String
+
+    public init(
+        pending: PendingCall<Arguments, Output, Failure>,
+        registration: _Mock4SwiftStubRegistration<Arguments, Ephemeral, Output>,
+        answer: @escaping (Answer) -> StubOutcome<Arguments, Ephemeral, Output>,
+        member: String
+    ) {
+        self.pending = pending
+        self.registration = registration
+        answerOutcome = answer
+        self.member = member
+    }
+
+    public var callCount: Int {
+        pending.callCount
+    }
+
+    public var arguments: [Arguments] {
+        pending.arguments
+    }
+
+    public func waitUntilCalled(count: Int = 1, timeout: Duration) async throws {
+        try await pending.waitUntilCalled(count: count, timeout: timeout)
+    }
+
+    public func resume(returning output: sending Output) {
+        pending.resume(returning: output)
+    }
+
+    public func resume() where Output == Void {
+        pending.resume()
+    }
+
+    public func resume(throwing failure: Failure) {
+        pending.resume(throwing: failure)
+    }
+
+    @discardableResult public func thenReturn(_ values: Output...) -> Self {
+        registration.append(values.map(StubOutcome.returning))
+        return self
+    }
+
+    @discardableResult public func thenSucceed() -> Self where Output == Void {
+        registration.append([.returning(())])
+        return self
+    }
+
+    @discardableResult public func thenThrow(_ error: Failure, _ errors: Failure...) -> Self {
+        registration.append(([error] + errors).map(StubOutcome.throwing))
+        return self
+    }
+
+    @discardableResult public func thenAnswer(_ answer: Answer) -> Self {
+        registration.append([answerOutcome(answer)])
+        return self
+    }
+
+    @discardableResult public func thenSuspend(
+        cancellation: PendingCancellationPolicy<Failure> = .ignore
+    ) -> _Mock4SwiftThrowingPendingSequence<Arguments, Ephemeral, Output, Failure, Answer> {
+        let pending = PendingCall<Arguments, Output, Failure>(member: member)
+        registration.append([.suspending(on: pending, cancellation: cancellation)])
+        return .init(pending: pending, registration: registration, answer: answerOutcome, member: member)
+    }
+}
+
 public struct _Mock4SwiftReturnStub<Arguments, Ephemeral, Output, Answer> {
     private let apply: ([StubOutcome<Arguments, Ephemeral, Output>])
         -> _Mock4SwiftStubRegistration<Arguments, Ephemeral, Output>
@@ -12,15 +317,13 @@ public struct _Mock4SwiftReturnStub<Arguments, Ephemeral, Output, Answer> {
         answerOutcome = answer
     }
 
-    @discardableResult
-    public func willReturn(
+    @discardableResult public func willReturn(
         _ values: Output...
     ) -> _Mock4SwiftReturnSequence<Arguments, Ephemeral, Output, Answer> {
         .init(registration: apply(values.map(StubOutcome.returning)), answer: answerOutcome)
     }
 
-    @discardableResult
-    public func willAnswer(_ answer: Answer) -> _Mock4SwiftReturnSequence<Arguments, Ephemeral, Output, Answer> {
+    @discardableResult public func willAnswer(_ answer: Answer) -> _Mock4SwiftReturnSequence<Arguments, Ephemeral, Output, Answer> {
         .init(registration: apply([answerOutcome(answer)]), answer: answerOutcome)
     }
 
@@ -38,14 +341,12 @@ public struct _Mock4SwiftReturnSequence<Arguments, Ephemeral, Output, Answer> {
         answerOutcome = answer
     }
 
-    @discardableResult
-    public func thenReturn(_ values: Output...) -> Self {
+    @discardableResult public func thenReturn(_ values: Output...) -> Self {
         registration.append(values.map(StubOutcome.returning))
         return self
     }
 
-    @discardableResult
-    public func thenAnswer(_ answer: Answer) -> Self {
+    @discardableResult public func thenAnswer(_ answer: Answer) -> Self {
         registration.append([answerOutcome(answer)])
         return self
     }
@@ -72,22 +373,19 @@ public struct _Mock4SwiftThrowingReturnStub<
         answerOutcome = answer
     }
 
-    @discardableResult
-    public func willReturn(
+    @discardableResult public func willReturn(
         _ values: Output...
     ) -> _Mock4SwiftThrowingReturnSequence<Arguments, Ephemeral, Output, Failure, Answer> {
         .init(registration: apply(values.map(StubOutcome.returning)), answer: answerOutcome)
     }
 
-    @discardableResult
-    public func willThrow(
+    @discardableResult public func willThrow(
         _ errors: Failure...
     ) -> _Mock4SwiftThrowingReturnSequence<Arguments, Ephemeral, Output, Failure, Answer> {
         .init(registration: apply(errors.map(StubOutcome.throwing)), answer: answerOutcome)
     }
 
-    @discardableResult
-    public func willAnswer(
+    @discardableResult public func willAnswer(
         _ answer: Answer
     ) -> _Mock4SwiftThrowingReturnSequence<Arguments, Ephemeral, Output, Failure, Answer> {
         .init(registration: apply([answerOutcome(answer)]), answer: answerOutcome)
@@ -113,20 +411,17 @@ public struct _Mock4SwiftThrowingReturnSequence<
         answerOutcome = answer
     }
 
-    @discardableResult
-    public func thenReturn(_ values: Output...) -> Self {
+    @discardableResult public func thenReturn(_ values: Output...) -> Self {
         registration.append(values.map(StubOutcome.returning))
         return self
     }
 
-    @discardableResult
-    public func thenThrow(_ errors: Failure...) -> Self {
+    @discardableResult public func thenThrow(_ errors: Failure...) -> Self {
         registration.append(errors.map(StubOutcome.throwing))
         return self
     }
 
-    @discardableResult
-    public func thenAnswer(_ answer: Answer) -> Self {
+    @discardableResult public func thenAnswer(_ answer: Answer) -> Self {
         registration.append([answerOutcome(answer)])
         return self
     }
@@ -152,15 +447,13 @@ public struct _Mock4SwiftProduceStub<
         answerOutcome = answer
     }
 
-    @discardableResult
-    public func willProduce(
+    @discardableResult public func willProduce(
         _ producers: (() -> Output)...
     ) -> _Mock4SwiftProduceSequence<Arguments, Ephemeral, Output, Answer> {
         .init(registration: apply(producers.map(TransientStubOutcome.producing)), answer: answerOutcome)
     }
 
-    @discardableResult
-    public func willAnswer(_ answer: Answer) -> _Mock4SwiftProduceSequence<Arguments, Ephemeral, Output, Answer> {
+    @discardableResult public func willAnswer(_ answer: Answer) -> _Mock4SwiftProduceSequence<Arguments, Ephemeral, Output, Answer> {
         .init(registration: apply([answerOutcome(answer)]), answer: answerOutcome)
     }
 }
@@ -182,14 +475,12 @@ public struct _Mock4SwiftProduceSequence<
         answerOutcome = answer
     }
 
-    @discardableResult
-    public func thenProduce(_ producers: (() -> Output)...) -> Self {
+    @discardableResult public func thenProduce(_ producers: (() -> Output)...) -> Self {
         registration.append(producers.map(TransientStubOutcome.producing))
         return self
     }
 
-    @discardableResult
-    public func thenAnswer(_ answer: Answer) -> Self {
+    @discardableResult public func thenAnswer(_ answer: Answer) -> Self {
         registration.append([answerOutcome(answer)])
         return self
     }
@@ -215,22 +506,19 @@ public struct _Mock4SwiftThrowingProduceStub<
         answerOutcome = answer
     }
 
-    @discardableResult
-    public func willProduce(
+    @discardableResult public func willProduce(
         _ producers: (() -> Output)...
     ) -> _Mock4SwiftThrowingProduceSequence<Arguments, Ephemeral, Output, Failure, Answer> {
         .init(registration: apply(producers.map(TransientStubOutcome.producing)), answer: answerOutcome)
     }
 
-    @discardableResult
-    public func willThrow(
+    @discardableResult public func willThrow(
         _ errors: Failure...
     ) -> _Mock4SwiftThrowingProduceSequence<Arguments, Ephemeral, Output, Failure, Answer> {
         .init(registration: apply(errors.map(TransientStubOutcome.throwing)), answer: answerOutcome)
     }
 
-    @discardableResult
-    public func willAnswer(
+    @discardableResult public func willAnswer(
         _ answer: Answer
     ) -> _Mock4SwiftThrowingProduceSequence<Arguments, Ephemeral, Output, Failure, Answer> {
         .init(registration: apply([answerOutcome(answer)]), answer: answerOutcome)
@@ -255,20 +543,17 @@ public struct _Mock4SwiftThrowingProduceSequence<
         answerOutcome = answer
     }
 
-    @discardableResult
-    public func thenProduce(_ producers: (() -> Output)...) -> Self {
+    @discardableResult public func thenProduce(_ producers: (() -> Output)...) -> Self {
         registration.append(producers.map(TransientStubOutcome.producing))
         return self
     }
 
-    @discardableResult
-    public func thenThrow(_ errors: Failure...) -> Self {
+    @discardableResult public func thenThrow(_ errors: Failure...) -> Self {
         registration.append(errors.map(TransientStubOutcome.throwing))
         return self
     }
 
-    @discardableResult
-    public func thenAnswer(_ answer: Answer) -> Self {
+    @discardableResult public func thenAnswer(_ answer: Answer) -> Self {
         registration.append([answerOutcome(answer)])
         return self
     }
@@ -293,20 +578,17 @@ public struct _Mock4SwiftThrowingVoidStub<
         answerOutcome = answer
     }
 
-    @discardableResult
-    public func willSucceed() -> _Mock4SwiftThrowingVoidSequence<Arguments, Ephemeral, Failure, Answer> {
+    @discardableResult public func willSucceed() -> _Mock4SwiftThrowingVoidSequence<Arguments, Ephemeral, Failure, Answer> {
         .init(registration: apply([.returning(())]), answer: answerOutcome)
     }
 
-    @discardableResult
-    public func willThrow(
+    @discardableResult public func willThrow(
         _ errors: Failure...
     ) -> _Mock4SwiftThrowingVoidSequence<Arguments, Ephemeral, Failure, Answer> {
         .init(registration: apply(errors.map(StubOutcome.throwing)), answer: answerOutcome)
     }
 
-    @discardableResult
-    public func willAnswer(
+    @discardableResult public func willAnswer(
         _ answer: Answer
     ) -> _Mock4SwiftThrowingVoidSequence<Arguments, Ephemeral, Failure, Answer> {
         .init(registration: apply([answerOutcome(answer)]), answer: answerOutcome)
@@ -330,20 +612,17 @@ public struct _Mock4SwiftThrowingVoidSequence<
         answerOutcome = answer
     }
 
-    @discardableResult
-    public func thenSucceed() -> Self {
+    @discardableResult public func thenSucceed() -> Self {
         registration.append([.returning(())])
         return self
     }
 
-    @discardableResult
-    public func thenThrow(_ errors: Failure...) -> Self {
+    @discardableResult public func thenThrow(_ errors: Failure...) -> Self {
         registration.append(errors.map(StubOutcome.throwing))
         return self
     }
 
-    @discardableResult
-    public func thenAnswer(_ answer: Answer) -> Self {
+    @discardableResult public func thenAnswer(_ answer: Answer) -> Self {
         registration.append([answerOutcome(answer)])
         return self
     }
@@ -368,20 +647,17 @@ public struct _Mock4SwiftThrowingProduceVoidStub<
         answerOutcome = answer
     }
 
-    @discardableResult
-    public func willSucceed() -> _Mock4SwiftThrowingProduceVoidSequence<Arguments, Ephemeral, Failure, Answer> {
+    @discardableResult public func willSucceed() -> _Mock4SwiftThrowingProduceVoidSequence<Arguments, Ephemeral, Failure, Answer> {
         .init(registration: apply([.producing { () }]), answer: answerOutcome)
     }
 
-    @discardableResult
-    public func willThrow(
+    @discardableResult public func willThrow(
         _ errors: Failure...
     ) -> _Mock4SwiftThrowingProduceVoidSequence<Arguments, Ephemeral, Failure, Answer> {
         .init(registration: apply(errors.map(TransientStubOutcome.throwing)), answer: answerOutcome)
     }
 
-    @discardableResult
-    public func willAnswer(
+    @discardableResult public func willAnswer(
         _ answer: Answer
     ) -> _Mock4SwiftThrowingProduceVoidSequence<Arguments, Ephemeral, Failure, Answer> {
         .init(registration: apply([answerOutcome(answer)]), answer: answerOutcome)
@@ -405,20 +681,17 @@ public struct _Mock4SwiftThrowingProduceVoidSequence<
         answerOutcome = answer
     }
 
-    @discardableResult
-    public func thenSucceed() -> Self {
+    @discardableResult public func thenSucceed() -> Self {
         registration.append([.producing { () }])
         return self
     }
 
-    @discardableResult
-    public func thenThrow(_ errors: Failure...) -> Self {
+    @discardableResult public func thenThrow(_ errors: Failure...) -> Self {
         registration.append(errors.map(TransientStubOutcome.throwing))
         return self
     }
 
-    @discardableResult
-    public func thenAnswer(_ answer: Answer) -> Self {
+    @discardableResult public func thenAnswer(_ answer: Answer) -> Self {
         registration.append([answerOutcome(answer)])
         return self
     }

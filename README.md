@@ -79,6 +79,19 @@ Given(service).fetch(.any).willAnswer { key in
 
 Synchronous answers receive normal arguments plus any nonescaping callbacks. Async answers receive only recordable arguments, and execute outside the mock's lock. Throwing answers use Swift's ordinary `throws` closure type; typed-throws witnesses still reject errors outside their declared failure type. `willAnswer` is available for property getters and argumentless members, including throwing `Void` methods; it is omitted for `rethrows` members and parameter packs. Noncopyable answer arguments are borrowed.
 
+Retained async methods, getters, and subscripts can defer completion with `willSuspend()`. The returned controller records calls and resumes them FIFO:
+
+```swift
+let pending = Given(service).fetch(.any).willSuspend()
+let task = Task { try await service.fetch("key") }
+
+try await pending.waitUntilCalled(timeout: .seconds(1))
+pending.resume(returning: "value")
+let value = try await task.value
+```
+
+Cancellation is ignored by default, leaving the call pending for explicit resumption. Throwing requirements can instead use `willSuspend(cancellation: .fail(with: failure))`. Deferred outcomes compose with `thenReturn`, `thenSucceed`, `thenThrow`, `thenAnswer`, and `thenSuspend`; the final deferred outcome repeats and concurrent calls remain FIFO. Resetting stubs prevents future selection without invalidating calls that are already pending. Transient noncopyable members do not retain values and therefore do not offer suspension controllers.
+
 The runtime channel types now include ephemeral arguments: `MockMember<Arguments, Ephemeral, Output>` and `TransientMockMember<Arguments, Ephemeral, Output>`. Direct runtime users should pass `Void` when no nonescaping callback payload exists.
 
 ## Matching, capture, and reset

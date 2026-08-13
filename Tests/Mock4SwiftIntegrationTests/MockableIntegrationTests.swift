@@ -6,6 +6,13 @@ import Testing
 import Foundation
 #endif
 
+private final class UncheckedSendableBox<Value>: @unchecked Sendable {
+    let value: Value
+    init(_ value: Value) {
+        self.value = value
+    }
+}
+
 @Mockable private protocol WeatherService {
     var unit: String { get set }
 
@@ -212,6 +219,49 @@ private struct Identifier: IdentifiedValue, Equatable {
 
     Verify(mock, 1).temperature(for: .value("Toronto"))
     VerifyNoMoreInteractions(mock)
+}
+
+@Test private func generatedAsyncMembersSupportDeferredFIFOOutcomes() async throws {
+    let weather = WeatherServiceMock()
+    let weatherBox = UncheckedSendableBox(weather)
+    let temperatures = Given(weather).temperature(for: .any).willSuspend()
+    let toronto = Task { try await weatherBox.value.temperature(for: "Toronto") }
+    try await temperatures.waitUntilCalled(timeout: .seconds(1))
+    let montreal = Task { try await weatherBox.value.temperature(for: "Montreal") }
+    try await temperatures.waitUntilCalled(count: 2, timeout: .seconds(1))
+    #expect(temperatures.arguments == ["Toronto", "Montreal"])
+    temperatures.resume(returning: 20)
+    temperatures.resume(returning: 21)
+    #expect(try await toronto.value == 20)
+    #expect(try await montreal.value == 21)
+
+    let cancelled = Given(weather).temperature(for: .value("cancelled"))
+        .willSuspend(cancellation: .fail(with: CancellationError()))
+    let cancelledTask = Task { try await weatherBox.value.temperature(for: "cancelled") }
+    try await cancelled.waitUntilCalled(timeout: .seconds(1))
+    cancelledTask.cancel()
+    await #expect(throws: CancellationError.self) { try await cancelledTask.value }
+
+    let status = Given(weather).status().willSuspend().thenReturn("ready")
+    let waitingStatus = Task { await weatherBox.value.status() }
+    try await status.waitUntilCalled(timeout: .seconds(1))
+    status.resume(returning: "starting")
+    #expect(await waitingStatus.value == "starting")
+    #expect(await weather.status() == "ready")
+
+    let accessors = EffectfulAccessorServiceMock()
+    let accessorsBox = UncheckedSendableBox(accessors)
+    let current = Given(accessors).current.willSuspend(cancellation: .fail(with: .unavailable))
+    let waitingCurrent = Task { try await accessorsBox.value.current }
+    try await current.waitUntilCalled(timeout: .seconds(1))
+    current.resume(throwing: .unavailable)
+    await #expect(throws: LoadFailure.unavailable) { try await waitingCurrent.value }
+
+    let subscriptValue = Given(accessors).subscriptGet(.value("key")).willSuspend()
+    let waitingSubscript = Task { try await accessorsBox.value["key"] }
+    try await subscriptValue.waitUntilCalled(timeout: .seconds(1))
+    subscriptValue.resume(returning: "value")
+    #expect(try await waitingSubscript.value == "value")
 }
 
 @Test private func generatedMockSupportsStaticMembersSubscriptsAndInitializers() {

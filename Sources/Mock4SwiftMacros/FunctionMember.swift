@@ -378,6 +378,28 @@ struct FunctionMember {
     }
 
     var givenFactory: String {
+        if isAsync, !isTransient, !isRethrows {
+            let failure = isThrowing ? (typedError ?? "any Error") : "Never"
+            let typeName = isThrowing ? "_Mock4SwiftAsyncThrowingReturnStub" : "_Mock4SwiftAsyncReturnStub"
+            let genericTypes = [argumentsType, ephemeralArgumentsType, outputType] + (isThrowing ? [failure] : []) + [answerType]
+            let handle = "\(typeName)<\(genericTypes.joined(separator: ", "))>"
+            let success = outputType == "Void"
+                ? "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: [.returnValue(())])\n                "
+                : ""
+            return method(
+                fluentSignature(arguments: matcherDeclarations, returning: handle, inferredFrom: handle),
+                body: """
+                \(success)return \(handle)(
+                    member: "\(displayName)",
+                    apply: { outcomes in
+                        \(registryResolution)return \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: outcomes)
+                    },
+                    answer: \(answerAdapter)
+                )
+                """,
+                attribute: outputType == "Void" ? "@discardableResult" : nil
+            )
+        }
         if outputType == "Void" {
             let successOutcome = isTransient ? "[.producing { () }]" : "[.returnValue(())]"
             let success = "\(registryResolution)\(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: \(successOutcome))"

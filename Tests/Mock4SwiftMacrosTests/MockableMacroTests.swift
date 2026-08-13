@@ -177,7 +177,26 @@ final class MockableMacroTests: XCTestCase {
         XCTAssertTrue(source.contains("answer(arguments, ephemeral)"))
         XCTAssertTrue(source.contains("answer()"))
         XCTAssertTrue(source.contains("_Mock4SwiftThrowingVoidStub<Void, Void, ServiceError, () throws -> Void>"))
-        XCTAssertTrue(source.contains("_Mock4SwiftThrowingVoidStub<Void, Void, ServiceError, () async throws -> Void>"))
+        XCTAssertTrue(source.contains("_Mock4SwiftAsyncThrowingReturnStub<String, Void, Int, ServiceError, (String) async throws -> Int>"))
+        XCTAssertTrue(source.contains("_Mock4SwiftAsyncReturnStub<Void, Void, String, () async -> String>"))
+        XCTAssertTrue(source.contains("_Mock4SwiftAsyncThrowingReturnStub<Void, Void, Void, ServiceError, () async throws -> Void>"))
+        XCTAssertTrue(source.contains("member: \"subscript.get\""))
+    }
+
+    func testSuspensionFactoriesCoverStaticGenericAndExcludeTransientMembers() throws {
+        let source = try peerSource(
+            """
+            protocol Service {
+                static func load<Value>(_ value: Value) async -> Value
+                @MockNoncopyable func transient(_ value: borrowing Token) async -> Int
+            }
+            """
+        )
+
+        XCTAssertTrue(source.contains("_Mock4SwiftAsyncReturnStub<Value, Void, Value, (Value) async -> Value>"))
+        XCTAssertTrue(source.contains("StaticMockRegistry.shared.member"))
+        XCTAssertTrue(source.contains("_Mock4SwiftProduceStub<Token, Void, Int"))
+        XCTAssertFalse(source.contains("_Mock4SwiftAsyncReturnStub<Token"))
     }
 
     func testRethrowsUsesEphemeralClosureDispatcher() throws {
