@@ -12,6 +12,7 @@ import Foundation
     func temperature(for city: String) async throws -> Double
     func save(_ value: Int)
     func greeting() -> String
+    func status() async -> String
     func format(_ value: Int, prefix: String) -> String
 }
 
@@ -20,6 +21,7 @@ import Foundation
 
     static var sharedValue: Int { get set }
     static func make(_ value: Int) -> String
+    static func version() -> String
 
     subscript(_ key: String) -> Int { get set }
 }
@@ -51,6 +53,8 @@ private enum LoadFailure: Error, Equatable {
 @Mockable private protocol TypedThrower {
     func load(_ key: String) throws(LoadFailure) -> Int
     func refresh() throws(LoadFailure)
+    func refreshAsync() async throws(LoadFailure)
+    var label: String { get throws(LoadFailure) }
 }
 
 @Mockable private protocol GenericService {
@@ -287,9 +291,9 @@ private struct Identifier: IdentifiedValue, Equatable {
 
     let transient = NoncopyableServiceMock()
     Given(transient).makeThrowing()
-        .willProduce({ NoncopyableToken(raw: 1) })
+        .willProduce { NoncopyableToken(raw: 1) }
         .thenThrow(.unavailable)
-        .thenProduce({ NoncopyableToken(raw: 3) })
+        .thenProduce { NoncopyableToken(raw: 3) }
 
     #expect(try transient.makeThrowing().raw == 1)
     #expect(throws: LoadFailure.unavailable) { _ = try transient.makeThrowing() }
@@ -315,6 +319,25 @@ private struct Identifier: IdentifiedValue, Equatable {
 
 @Test private func generatedAnswersUseInvocationArgumentsAndMixOutcomes() async throws {
     let weather = WeatherServiceMock()
+    Given(weather).greeting()
+        .willAnswer { "hello" }
+        .thenAnswer { "again" }
+    Given(weather).status()
+        .willAnswer {
+            await Task.yield()
+            return "ready"
+        }
+        .thenAnswer { "steady" }
+    Given(weather).unit
+        .willAnswer { "C" }
+        .thenAnswer { "F" }
+    #expect(weather.greeting() == "hello")
+    #expect(weather.greeting() == "again")
+    #expect(await weather.status() == "ready")
+    #expect(await weather.status() == "steady")
+    #expect(weather.unit == "C")
+    #expect(weather.unit == "F")
+
     Given(weather).format(.any, prefix: .any)
         .willAnswer { value, prefix in "\(prefix)\(value)" }
         .thenReturn("fixed")
@@ -343,6 +366,28 @@ private struct Identifier: IdentifiedValue, Equatable {
     #expect(try throwing.load("value") == 5)
     #expect(throws: LoadFailure.unavailable) { try throwing.load("missing") }
 
+    Given(throwing).refresh()
+        .willAnswer {}
+        .thenThrow(.unavailable)
+        .thenAnswer {}
+    try throwing.refresh()
+    #expect(throws: LoadFailure.unavailable) { try throwing.refresh() }
+    try throwing.refresh()
+
+    Given(throwing).refreshAsync()
+        .willAnswer {}
+        .thenThrow(.unavailable)
+        .thenAnswer {}
+    try await throwing.refreshAsync()
+    await #expect(throws: LoadFailure.unavailable) { try await throwing.refreshAsync() }
+    try await throwing.refreshAsync()
+
+    Given(throwing).label
+        .willAnswer { "available" }
+        .thenAnswer { throw LoadFailure.unavailable }
+    #expect(try throwing.label == "available")
+    #expect(throws: LoadFailure.unavailable) { try throwing.label }
+
     let advanced = AdvancedServiceMock(seed: 0)
     Given(advanced).subscriptGet(.any).willAnswer { $0.count }
     #expect(advanced["answer"] == 6)
@@ -350,9 +395,17 @@ private struct Identifier: IdentifiedValue, Equatable {
     Given(StaticGenericServiceMock.self).identity(Parameter<String>.any).willAnswer { $0 }
     #expect(StaticGenericServiceMock.identity("typed") == "typed")
 
+    Given(AdvancedServiceMock.self).version()
+        .willAnswer { "1" }
+        .thenAnswer { "2" }
+    #expect(AdvancedServiceMock.version() == "1")
+    #expect(AdvancedServiceMock.version() == "2")
+
     let transient = NoncopyableServiceMock()
     Given(transient).inspect(.any).willAnswer { $0.raw * 2 }
     #expect(transient.inspect(NoncopyableToken(raw: 3)) == 6)
+    Given(transient).make().willAnswer { NoncopyableToken(raw: 4) }
+    #expect(transient.make().raw == 4)
 
     let callbacks = CallbackServiceMock()
     Given(callbacks).resolve(.any).willAnswer { key, compute in key + compute() }
@@ -486,12 +539,12 @@ private struct Identifier: IdentifiedValue, Equatable {
 @Test private func generatedTransientMemberDoesNotRetainAndVerifiesCountOnly() {
     let mock = NoncopyableServiceMock()
     var inspected = 0
-    Given(mock).inspect(.matching { $0.raw == 3 }).willProduce({ 9 })
-    Given(mock).consume(.value(2), token: .matching { $0.raw == 3 }).willProduce({ 10 })
-    Given(mock).make().willProduce({ NoncopyableToken(raw: 4) })
-    Given(mock).token.willProduce({ NoncopyableToken(raw: 6) })
+    Given(mock).inspect(.matching { $0.raw == 3 }).willProduce { 9 }
+    Given(mock).consume(.value(2), token: .matching { $0.raw == 3 }).willProduce { 10 }
+    Given(mock).make().willProduce { NoncopyableToken(raw: 4) }
+    Given(mock).token.willProduce { NoncopyableToken(raw: 6) }
     Given(mock).token(set: .any)
-    Given(mock).subscriptGet(.value(1)).willProduce({ NoncopyableToken(raw: 8) })
+    Given(mock).subscriptGet(.value(1)).willProduce { NoncopyableToken(raw: 8) }
     Given(mock).subscriptSet(.value(1), value: .any)
     Perform(mock).inspect(.any) { inspected = $0.raw }
 
@@ -546,12 +599,18 @@ private struct Identifier: IdentifiedValue, Equatable {
     Verify(mock, 1).subscriptGet(.value("key"))
 
     let throwing = EffectfulAccessorServiceMock()
-    Given(throwing).current.willThrow(.unavailable)
-    Given(throwing).subscriptGet(.value("key")).willThrow(LoadFailure.unavailable)
+    Given(throwing).current
+        .willAnswer { 1 }
+        .thenThrow(.unavailable)
+    Given(throwing).subscriptGet(.value("key"))
+        .willAnswer { key in "answer-\(key)" }
+        .thenThrow(LoadFailure.unavailable)
+    #expect(try await throwing.current == 1)
+    #expect(try await throwing["key"] == "answer-key")
     await #expect(throws: LoadFailure.unavailable) { try await throwing.current }
     await #expect(throws: LoadFailure.unavailable) { try await throwing["key"] }
-    Verify(throwing, 1).current()
-    Verify(throwing, 1).subscriptGet(.value("key"))
+    Verify(throwing, 2).current()
+    Verify(throwing, 2).subscriptGet(.value("key"))
 }
 
 @Test private func generatedValuePackAndOpaqueParameterFactories() {

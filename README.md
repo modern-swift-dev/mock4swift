@@ -77,7 +77,7 @@ Given(service).fetch(.any).willAnswer { key in
 }
 ```
 
-Synchronous answers receive normal arguments plus any nonescaping callbacks. Async answers receive only recordable arguments, and execute outside the mock's lock. Throwing answers use Swift's `throws` closure type; typed-throws witnesses still reject errors outside their declared failure type. `willAnswer` is omitted for properties, argumentless and `rethrows` members, and parameter packs. Noncopyable answer arguments are borrowed.
+Synchronous answers receive normal arguments plus any nonescaping callbacks. Async answers receive only recordable arguments, and execute outside the mock's lock. Throwing answers use Swift's ordinary `throws` closure type; typed-throws witnesses still reject errors outside their declared failure type. `willAnswer` is available for property getters and argumentless members, including throwing `Void` methods; it is omitted for `rethrows` members and parameter packs. Noncopyable answer arguments are borrowed.
 
 The runtime channel types now include ephemeral arguments: `MockMember<Arguments, Ephemeral, Output>` and `TransientMockMember<Arguments, Ephemeral, Output>`. Direct runtime users should pass `Void` when no nonescaping callback payload exists.
 

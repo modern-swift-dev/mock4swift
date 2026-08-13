@@ -123,6 +123,17 @@ struct PropertyMember {
         parsedTypedError(getterEffects)
     }
 
+    var answerType: String {
+        let effects = (isAsync ? " async" : "") + (isThrowing ? " throws" : "")
+        return "()\(effects) -> \(type)"
+    }
+
+    var answerAdapter: String {
+        let prefix = (isThrowing ? "try " : "") + (isAsync ? "await " : "")
+        let runtimeParameters = isAsync ? "arguments" : "arguments, _"
+        return "{ answer in .answering { \(runtimeParameters) in \(prefix)answer() } }"
+    }
+
     var channelType: String {
         "\(isTransient ? "TransientMockMember" : "MockMember")<\(argumentsType), Void, \(outputType)>"
     }
@@ -205,7 +216,7 @@ struct PropertyMember {
                     let prefix = isTransient
                         ? "_Mock4SwiftThrowingProduceVoidStub"
                         : "_Mock4SwiftThrowingVoidStub"
-                    let handle = "\(prefix)<Void, Void, \(errorType), Never>"
+                    let handle = "\(prefix)<Void, Void, \(errorType), \(answerType)>"
                     return declaration(
                         "var \(name): \(handle)",
                         body: """
@@ -214,7 +225,7 @@ struct PropertyMember {
                             apply: { outcomes in
                                 \(registryResolution)return \(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: outcomes)
                             },
-                            answer: _mock4SwiftNoAnswer
+                            answer: \(answerAdapter)
                         )
                         """
                     )
@@ -224,7 +235,7 @@ struct PropertyMember {
                 } else {
                     isThrowing ? "_Mock4SwiftThrowingReturnStub" : "_Mock4SwiftReturnStub"
                 }
-                let genericTypes = ["Void", "Void", type] + (isThrowing ? [typedError ?? "any Error"] : []) + ["Never"]
+                let genericTypes = ["Void", "Void", type] + (isThrowing ? [typedError ?? "any Error"] : []) + [answerType]
                 let handle = "\(typeName)<\(genericTypes.joined(separator: ", "))>"
                 return declaration(
                     "var \(name): \(handle)",
@@ -233,7 +244,7 @@ struct PropertyMember {
                         apply: { outcomes in
                             \(registryResolution)return \(channelReference).addStub(matching: { _ in true }, specificity: 0, outcomes: outcomes)
                         },
-                        answer: _mock4SwiftNoAnswer
+                        answer: \(answerAdapter)
                     )
                     """
                 )

@@ -276,10 +276,10 @@ struct FunctionMember {
     }
 
     var supportsAnswer: Bool {
-        guard outputType != "Void", !isRethrows, !parameters.contains(where: \.isPack) else {
+        guard !isRethrows, !parameters.contains(where: \.isPack) else {
             return false
         }
-        return isAsync ? !parameters.isEmpty : !parameters.isEmpty || !ephemeralParameters.isEmpty
+        return true
     }
 
     var answerType: String {
@@ -288,15 +288,14 @@ struct FunctionMember {
         }
         let ownership = isTransient ? "borrowing " : ""
         let types = parameters.map { ownership + $0.type } + (isAsync ? [] : ephemeralParameters.map(\.type))
-        let effects: String
-        if isAsync, isThrowing {
-            effects = " async throws"
+        let effects = if isAsync, isThrowing {
+            " async throws"
         } else if isAsync {
-            effects = " async"
+            " async"
         } else if isThrowing {
-            effects = " throws"
+            " throws"
         } else {
-            effects = ""
+            ""
         }
         return "(" + types.joined(separator: ", ") + ")\(effects) -> \(outputType)"
     }
@@ -392,7 +391,7 @@ struct FunctionMember {
             let prefix = isTransient
                 ? "_Mock4SwiftThrowingProduceVoidStub"
                 : "_Mock4SwiftThrowingVoidStub"
-            let handle = "\(prefix)<\(argumentsType), \(ephemeralArgumentsType), \(errorType), Never>"
+            let handle = "\(prefix)<\(argumentsType), \(ephemeralArgumentsType), \(errorType), \(answerType)>"
             return method(
                 fluentSignature(arguments: matcherDeclarations, returning: handle, inferredFrom: handle),
                 body: """
@@ -401,7 +400,7 @@ struct FunctionMember {
                     apply: { outcomes in
                         \(registryResolution)return \(channelReference).addStub(matching: \(matcherClosure), specificity: \(specificity), outcomes: outcomes)
                     },
-                    answer: _mock4SwiftNoAnswer
+                    answer: \(answerAdapter)
                 )
                 """,
                 attribute: "@discardableResult"

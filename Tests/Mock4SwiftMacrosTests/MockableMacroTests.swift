@@ -146,19 +146,31 @@ final class MockableMacroTests: XCTestCase {
             protocol Service {
                 func format(_ value: Int, prefix: String) -> String
                 func fetch(_ key: String) async throws(ServiceError) -> Int
+                func greeting() -> String
+                func status() async -> String
+                func refresh() throws(ServiceError)
+                func refreshAsync() async throws(ServiceError)
+                var title: String { get throws(ServiceError) }
                 func resolve(_ key: Int, compute: () -> Int) -> Int
-                subscript(_ key: String) -> Int { get }
+                subscript(_ key: String) -> Int { get async throws(ServiceError) }
             }
             """
         )
 
         XCTAssertTrue(source.contains("(Int, String) -> String"))
         XCTAssertTrue(source.contains("(String) async throws -> Int"))
+        XCTAssertTrue(source.contains("() -> String"))
+        XCTAssertTrue(source.contains("() async -> String"))
+        XCTAssertTrue(source.contains("() throws -> Void"))
+        XCTAssertTrue(source.contains("() throws -> String"))
         XCTAssertTrue(source.contains("(Int, () -> Int) -> Int"))
-        XCTAssertTrue(source.contains("(String) -> Int"))
+        XCTAssertTrue(source.contains("(String) async throws -> Int"))
         XCTAssertTrue(source.contains("answer(arguments.value, arguments.prefix)"))
         XCTAssertTrue(source.contains("await answer(arguments)"))
         XCTAssertTrue(source.contains("answer(arguments, ephemeral)"))
+        XCTAssertTrue(source.contains("answer()"))
+        XCTAssertTrue(source.contains("_Mock4SwiftThrowingVoidStub<Void, Void, ServiceError, () throws -> Void>"))
+        XCTAssertTrue(source.contains("_Mock4SwiftThrowingVoidStub<Void, Void, ServiceError, () async throws -> Void>"))
     }
 
     func testRethrowsUsesEphemeralClosureDispatcher() throws {
@@ -197,6 +209,7 @@ final class MockableMacroTests: XCTestCase {
         )
         XCTAssertTrue(source.contains("@available(macOS 99, *)\n        func future"))
         XCTAssertTrue(source.contains("_genericMockRegistry.member(key: \"_mock_future_0\", typeIDs: [])"))
+        XCTAssertTrue(source.contains("_Mock4SwiftReturnStub<Void, Void, Int, () -> Int>"))
     }
 
     func testValuePackAndOpaqueParameterGeneration() throws {
@@ -214,6 +227,7 @@ final class MockableMacroTests: XCTestCase {
         XCTAssertTrue(source.contains("func opaque<_MockOpaque0: Equatable>"))
         XCTAssertTrue(source.contains("subscript<_MockOpaque0: Hashable>(_ key: _MockOpaque0)"))
         XCTAssertTrue(source.contains("MockMember<_MockOpaque0, Void, String>"))
+        XCTAssertTrue(source.contains("_Mock4SwiftReturnStub<(repeat each Value), Void, Int, Never>"))
     }
 
     func testTransientMarkerUsesProducerAndCountOnlyVerification() throws {
@@ -226,7 +240,7 @@ final class MockableMacroTests: XCTestCase {
             """
         )
         XCTAssertTrue(source.contains("TransientMockMember<Void, Void, Token>"))
-        XCTAssertTrue(source.contains("func make() -> _Mock4SwiftProduceStub<Void, Void, Token, Never>"))
+        XCTAssertTrue(source.contains("func make() -> _Mock4SwiftProduceStub<Void, Void, Token, () -> Token>"))
         XCTAssertTrue(source.contains("verification(count: count)"))
     }
 
