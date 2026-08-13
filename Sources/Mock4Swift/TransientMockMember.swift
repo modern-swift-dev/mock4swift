@@ -44,8 +44,7 @@ public final class TransientMockMember<
         self.name = name
     }
 
-    @discardableResult
-    public func addStub(
+    @discardableResult public func addStub(
         matching: @escaping (borrowing Arguments) -> Bool,
         specificity: Int = 0,
         outcomes: [TransientStubOutcome<Arguments, Ephemeral, Output>]
@@ -119,7 +118,7 @@ public final class TransientMockMember<
         }
     }
 
-    public func invoke(_ arguments: borrowing Arguments, ephemeral: borrowing Ephemeral) throws -> Output {
+    public func invoke(_ arguments: borrowing Arguments, ephemeral: borrowing Ephemeral, unstubbed: (() -> Output)? = nil) throws -> Output {
         let sequence = nextMockInvocationSequence()
         let snapshot = lock.withLock { () -> ([Action], [Stub], [ActionStub]) in
             invocations.append(sequence)
@@ -150,6 +149,9 @@ public final class TransientMockMember<
             nil
         }
         guard let selected else {
+            if let unstubbed {
+                return unstubbed()
+            }
             throw MockError.unstubbed(name)
         }
         switch consumeOutcome(id: selected.id, outcomes: selected.outcomes) {
@@ -165,9 +167,14 @@ public final class TransientMockMember<
         try invoke(arguments, ephemeral: ())
     }
 
+    public func invoke(_ arguments: borrowing Arguments, unstubbed: (() -> Output)?) throws -> Output where Ephemeral == Void {
+        try invoke(arguments, ephemeral: (), unstubbed: unstubbed)
+    }
+
     public func invokeAsync(
         _ arguments: borrowing Arguments,
-        ephemeral: borrowing Ephemeral
+        ephemeral: borrowing Ephemeral,
+        unstubbed: (() -> Output)? = nil
     ) async throws -> Output {
         let sequence = nextMockInvocationSequence()
         let snapshot = lock.withLock { () -> ([Action], [Stub], [ActionStub]) in
@@ -202,6 +209,9 @@ public final class TransientMockMember<
             nil
         }
         guard let selected else {
+            if let unstubbed {
+                return unstubbed()
+            }
             throw MockError.unstubbed(name)
         }
         switch consumeOutcome(id: selected.id, outcomes: selected.outcomes) {
@@ -214,6 +224,10 @@ public final class TransientMockMember<
 
     public func invokeAsync(_ arguments: borrowing Arguments) async throws -> Output where Ephemeral == Void {
         try await invokeAsync(arguments, ephemeral: ())
+    }
+
+    public func invokeAsync(_ arguments: borrowing Arguments, unstubbed: (() -> Output)?) async throws -> Output where Ephemeral == Void {
+        try await invokeAsync(arguments, ephemeral: (), unstubbed: unstubbed)
     }
 
     public func record() {

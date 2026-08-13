@@ -85,6 +85,43 @@ struct InitializerMember {
         "init" + declaration.signature.parameterClause.parameters.map { "\($0.firstName.text):" }.joined()
     }
 
+    var witnessCollisionKey: String {
+        initializerCollisionKey(appendingDefaults: false)
+    }
+
+    var defaultsCollisionKey: String {
+        initializerCollisionKey(appendingDefaults: true)
+    }
+
+    private func initializerCollisionKey(appendingDefaults: Bool) -> String {
+        let genericNames = declaration.genericParameterClause?.parameters.enumerated().map {
+            ($0.element.name.text, "_Generic\($0.offset)")
+        } ?? []
+        func canonicalize(_ source: String) -> String {
+            genericNames.reduce(source) { result, replacement in
+                result.replacingOccurrences(
+                    of: "\\b\(NSRegularExpression.escapedPattern(for: replacement.0))\\b",
+                    with: replacement.1,
+                    options: .regularExpression
+                )
+            }
+        }
+        var parameterKeys = declaration.signature.parameterClause.parameters.map { parameter in
+            let type = rewriteType(parameter.type.trimmedDescription, replacements: replacements, mockType: mockType)
+            return "\(parameter.firstName.text):\(canonicalize(type))\(parameter.ellipsis?.text ?? "")"
+        }
+        if appendingDefaults {
+            parameterKeys.append("defaults:MockDefaultPolicy")
+        }
+        let generic = declaration.genericParameterClause.map {
+            rewriteType($0.trimmedDescription, replacements: replacements, mockType: mockType)
+        } ?? ""
+        let whereClause = declaration.genericWhereClause.map {
+            rewriteType($0.trimmedDescription, replacements: replacements, mockType: mockType)
+        } ?? ""
+        return canonicalize(generic) + "(" + parameterKeys.joined(separator: ",") + ")" + canonicalize(whereClause)
+    }
+
     var parameters: [ParameterInfo] {
         declaration.signature.parameterClause.parameters.enumerated().map { position, parameter in
             let external = parameter.firstName.text
@@ -158,7 +195,36 @@ struct InitializerMember {
         let modifiers = declaration.modifiers.map(\.name.text).filter { !ignored.contains($0) }.joined(separator: " ")
         let modifierPrefix = modifiers.isEmpty ? "" : modifiers + " "
         let recording = isTransient ? "\(usesRegistry ? "member" : channelName).record()" : "\(usesRegistry ? "member" : channelName).record(\(argumentsExpression))"
-        return "\(attributePrefix)    \(access)\(required)\(override)\(modifierPrefix)init\(declaration.optionalMark?.text ?? "")\(genericClause)\(signature)\(whereClause) {\n        \(witnessRegistryResolution)\(recording)\n    }"
+        return "\(attributePrefix)    \(access)\(required)\(override)\(modifierPrefix)init\(declaration.optionalMark?.text ?? "")\(genericClause)\(signature)\(whereClause) {\n        _mock4SwiftDefaultPolicy = .strict\n        \(witnessRegistryResolution)\(recording)\n    }"
+    }
+
+    var defaultsWitness: String {
+        guard !declaration.signature.parameterClause.parameters.contains(where: { $0.firstName.text == "defaults" }) else {
+            return ""
+        }
+        var parameterClause = rewriteType(declaration.signature.parameterClause.trimmedDescription, replacements: replacements, mockType: mockType)
+        for opaque in opaqueParameters {
+            parameterClause.replaceFirst("some \(opaque.constraint)", with: opaque.name)
+        }
+        parameterClause.insert(
+            contentsOf: parameterClause == "()" ? "defaults _mock4SwiftDefaults: MockDefaultPolicy" : ", defaults _mock4SwiftDefaults: MockDefaultPolicy",
+            at: parameterClause.index(before: parameterClause.endIndex)
+        )
+        let effects = declaration.signature.effectSpecifiers.map { " " + $0.trimmedDescription } ?? ""
+        let whereClause = declaration.genericWhereClause.map { " " + rewriteType($0.trimmedDescription, replacements: replacements, mockType: mockType) } ?? ""
+        let attributes = declaration.attributes.compactMap { attribute -> String? in
+            guard let attribute = attribute.as(AttributeSyntax.self) else {
+                return nil
+            }
+            let name = attribute.attributeName.trimmedDescription.split(separator: ".").last
+            return name == "objc" ? nil : attribute.trimmedDescription
+        }.joined(separator: "\n    ")
+        let attributePrefix = attributes.isEmpty ? "" : "    " + attributes + "\n"
+        let ignored = Set(["required", "public", "package", "internal", "fileprivate", "private"])
+        let modifiers = declaration.modifiers.map(\.name.text).filter { !ignored.contains($0) && $0 != "optional" }.joined(separator: " ")
+        let modifierPrefix = modifiers.isEmpty ? "" : modifiers + " "
+        let recording = isTransient ? "\(usesRegistry ? "member" : channelName).record()" : "\(usesRegistry ? "member" : channelName).record(\(argumentsExpression))"
+        return "\(attributePrefix)    \(access)\(modifierPrefix)init\(declaration.optionalMark?.text ?? "")\(genericClause)\(parameterClause)\(effects)\(whereClause) {\n        _mock4SwiftDefaultPolicy = _mock4SwiftDefaults\n        \(witnessRegistryResolution)\(recording)\n    }"
     }
 
     var verifyFactory: String {

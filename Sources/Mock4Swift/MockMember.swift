@@ -128,7 +128,7 @@ public final class MockMember<Arguments, Ephemeral, Output>: @unchecked Sendable
         }
     }
 
-    public func invoke(_ arguments: Arguments, ephemeral: borrowing Ephemeral) throws -> Output {
+    public func invoke(_ arguments: Arguments, ephemeral: borrowing Ephemeral, unstubbed: (() -> Output)? = nil) throws -> Output {
         let sequence = nextMockInvocationSequence()
         let (snapshot, waiters) = lock.withLock { () -> (([Action], [Stub], [ActionStub]), [CheckedContinuation<Void, any Error>]) in
             invocations.append(.init(sequence: sequence, arguments: arguments))
@@ -159,6 +159,9 @@ public final class MockMember<Arguments, Ephemeral, Output>: @unchecked Sendable
             nil
         }
         guard let selected else {
+            if let unstubbed {
+                return unstubbed()
+            }
             throw MockError.unstubbed(name)
         }
         let outcome = consumeOutcome(id: selected.id, outcomes: selected.outcomes)
@@ -175,7 +178,11 @@ public final class MockMember<Arguments, Ephemeral, Output>: @unchecked Sendable
         try invoke(arguments, ephemeral: ())
     }
 
-    public func invokeAsync(_ arguments: Arguments, ephemeral: borrowing Ephemeral) async throws -> Output {
+    public func invoke(_ arguments: Arguments, unstubbed: (() -> Output)?) throws -> Output where Ephemeral == Void {
+        try invoke(arguments, ephemeral: (), unstubbed: unstubbed)
+    }
+
+    public func invokeAsync(_ arguments: Arguments, ephemeral: borrowing Ephemeral, unstubbed: (() -> Output)? = nil) async throws -> Output {
         let sequence = nextMockInvocationSequence()
         let (snapshot, waiters) = lock.withLock { () -> (([Action], [Stub], [ActionStub]), [CheckedContinuation<Void, any Error>]) in
             invocations.append(.init(sequence: sequence, arguments: arguments))
@@ -206,6 +213,9 @@ public final class MockMember<Arguments, Ephemeral, Output>: @unchecked Sendable
             nil
         }
         guard let selected else {
+            if let unstubbed {
+                return unstubbed()
+            }
             throw MockError.unstubbed(name)
         }
         let outcome = consumeOutcome(id: selected.id, outcomes: selected.outcomes)
@@ -219,6 +229,10 @@ public final class MockMember<Arguments, Ephemeral, Output>: @unchecked Sendable
 
     public func invokeAsync(_ arguments: Arguments) async throws -> Output where Ephemeral == Void {
         try await invokeAsync(arguments, ephemeral: ())
+    }
+
+    public func invokeAsync(_ arguments: Arguments, unstubbed: (() -> Output)?) async throws -> Output where Ephemeral == Void {
+        try await invokeAsync(arguments, ephemeral: (), unstubbed: unstubbed)
     }
 
     public func record(_ arguments: Arguments) {

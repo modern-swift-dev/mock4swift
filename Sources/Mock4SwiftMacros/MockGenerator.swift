@@ -231,7 +231,11 @@ struct MockGenerator {
         let initializerChannels = initializers.filter { !$0.usesRegistry }.map { "    \(isolation)private let \($0.channelName) = \($0.channelType)(name: \"\($0.displayName)\")" }
         let argumentStructs = all.compactMap(\.argumentsStructDeclaration)
         let channels = (argumentStructs + memberChannels + initializerChannels).joined(separator: "\n")
-        let initializerWitnesses = initializers.map(\.witness).joined(separator: "\n\n")
+        let initializerSignatures = Set(initializers.map(\.witnessCollisionKey))
+        let initializerWitnesses = initializers.flatMap { initializer in
+            let defaults = initializerSignatures.contains(initializer.defaultsCollisionKey) ? "" : initializer.defaultsWitness
+            return [initializer.witness, defaults]
+        }.filter { !$0.isEmpty }.joined(separator: "\n\n")
         let memberWitnesses = all.map(\.witness).filter { !$0.isEmpty }
         let witnesses = (memberWitnesses + (initializerWitnesses.isEmpty ? [] : [initializerWitnesses])).joined(separator: "\n\n")
         let givenFactories = instance.map(\.givenFactory).joined(separator: "\n\n")
@@ -266,10 +270,11 @@ struct MockGenerator {
         let unverifiedExpression = unverifiedChannels.isEmpty ? "[]" : unverifiedChannels.joined(separator: " + ")
         let unverifiedInvocations = "    \(access)\(isolation)var _mock4SwiftUnverifiedInvocations: [_Mock4SwiftInvocation] { \(unverifiedExpression) }\n\n"
         let staticConformance = staticMembers.isEmpty ? "" : ", StaticMock, InOrderStaticMock, _Mock4SwiftExhaustiveStaticMock, _Mock4SwiftStaticCallInspectable"
-        let defaultInitializer: String = if initializers.isEmpty, accessOverride != nil || !access.isEmpty {
+        let defaultPolicy = "    \(isolation)private let _mock4SwiftDefaultPolicy: MockDefaultPolicy\n\n"
+        let defaultInitializer: String = if initializers.isEmpty {
             isObjectiveC
-                ? "    \(access)override init() { super.init() }\n\n"
-                : "    \(access)init() {}\n\n"
+                ? "    \(access)override init() {\n        _mock4SwiftDefaultPolicy = .strict\n        super.init()\n    }\n\n    \(access)init(defaults: MockDefaultPolicy) {\n        _mock4SwiftDefaultPolicy = defaults\n        super.init()\n    }\n\n"
+                : "    \(access)init() { _mock4SwiftDefaultPolicy = .strict }\n\n    \(access)init(defaults: MockDefaultPolicy) { _mock4SwiftDefaultPolicy = defaults }\n\n"
         } else {
             ""
         }
@@ -332,6 +337,7 @@ struct MockGenerator {
         let superclass = isObjectiveC ? "Foundation.NSObject, " : ""
         return attributePrefix + access + "final \(kind) \(mockType)\(generics): \(superclass)\(conformanceType), Mock, InOrderMock, _Mock4SwiftExhaustiveMock, _Mock4SwiftCallInspectable\(staticConformance)\(mockWhere) {\n"
             + typealiasSection
+            + defaultPolicy
             + genericRegistry
             + orderedInvocations
             + unverifiedInvocations

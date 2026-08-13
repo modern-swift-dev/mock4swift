@@ -20,6 +20,8 @@ struct PropertyMember {
     let availability: String
     let witnessAttributes: String
     let isTransient: Bool
+    let isOptionalResult: Bool
+    let isVoidResult: Bool
     var usesRegistry: Bool {
         !availability.isEmpty
     }
@@ -52,6 +54,8 @@ struct PropertyMember {
         let availability = availabilityAttributes(declaration.attributes)
         let witnessAttributes = witnessAttributePrefix(declaration.attributes, indentation: "    ")
         let isTransient = hasAttribute(named: "MockNoncopyable", in: declaration.attributes) || declaration.trimmedDescription.contains("~Copyable")
+        let isOptionalResult = isOptionalType(annotation.type)
+        let isVoidResult = isVoidType(annotation.type)
         var result = [Self(
             name: pattern.identifier.text,
             type: type,
@@ -65,7 +69,9 @@ struct PropertyMember {
             getterHeader: getterHeader,
             availability: availability,
             witnessAttributes: witnessAttributes,
-            isTransient: isTransient
+            isTransient: isTransient,
+            isOptionalResult: isOptionalResult,
+            isVoidResult: isVoidResult
         )]
         if settable {
             result.append(Self(
@@ -81,7 +87,9 @@ struct PropertyMember {
                 getterHeader: getterHeader,
                 availability: availability,
                 witnessAttributes: witnessAttributes,
-                isTransient: isTransient
+                isTransient: isTransient,
+                isOptionalResult: isOptionalResult,
+                isVoidResult: isVoidResult
             ))
         }
         return result
@@ -105,6 +113,19 @@ struct PropertyMember {
 
     var outputType: String {
         kind == .get ? type : "Void"
+    }
+
+    var defaultFallback: String? {
+        guard !isStatic, !isThrowing else {
+            return nil
+        }
+        if kind == .set || isVoidResult {
+            return "{ switch self._mock4SwiftDefaultPolicy { case .void, .voidAndOptional: (); case .strict: preconditionFailure(\"Unstubbed nonthrowing member \(displayName)\") } }"
+        }
+        if isOptionalResult {
+            return "{ switch self._mock4SwiftDefaultPolicy { case .voidAndOptional: nil; case .strict, .void: preconditionFailure(\"Unstubbed nonthrowing member \(displayName)\") } }"
+        }
+        return nil
     }
 
     var getterEffects: String {
@@ -174,7 +195,8 @@ struct PropertyMember {
         guard kind == .get else {
             return ""
         }
-        let call = "try \(isAsync ? "await " : "")\(witnessChannelReference).\(isAsync ? "invokeAsync" : "invoke")(())"
+        let fallback = defaultFallback.map { ", unstubbed: \($0)" } ?? ""
+        let call = "try \(isAsync ? "await " : "")\(witnessChannelReference).\(isAsync ? "invokeAsync" : "invoke")(\(kind == .get ? "()" : "newValue")\(fallback))"
         let getterBody = if let typedError {
             "\(witnessRegistryResolution)do { return \(call) }\n            catch let error as \(typedError) { throw error }\n            catch { preconditionFailure(\"Invalid or unstubbed typed-throws member \(name).get: \\(error)\") }"
         } else if isThrowing {
@@ -196,8 +218,10 @@ struct PropertyMember {
         } else {
             setterResolution = ""
         }
+        let setterFallback = !isStatic ?
+            ", unstubbed: { switch self._mock4SwiftDefaultPolicy { case .void, .voidAndOptional: (); case .strict: preconditionFailure(\"Unstubbed nonthrowing member \(name).set\") } }" : ""
         let setter = isReadWrite ?
-            "\n        set {\n            \(setterResolution)do { return try \(setterChannel).invoke(newValue) }\n            catch { preconditionFailure(\"Unstubbed nonthrowing member \(name).set: \\(error)\") }\n        }" :
+            "\n        set {\n            \(setterResolution)do { return try \(setterChannel).invoke(newValue\(setterFallback)) }\n            catch { preconditionFailure(\"Unstubbed nonthrowing member \(name).set: \\(error)\") }\n        }" :
             ""
         let prefix = availability.isEmpty ? "" : availability + "\n"
         return prefix + witnessAttributes + "    \(access)\(nonisolatedModifier.isEmpty ? "" : nonisolatedModifier + " ")\(isStatic ? "static " : "")var \(name): \(type) {\n        \(getter)\(setter)\n    }"

@@ -53,6 +53,15 @@ Verify(weather, 1).temperature(for: .value("Toronto"))
 Verify(weather, 1).unit(set: .value("F"))
 ```
 
+Mocks are strict by default. For setup-oriented tests, opt into per-instance
+defaults for unstubbed nonthrowing `Void` members, and optionally optional
+results. Calls are still recorded and verified normally; throwing and static
+requirements always remain strict.
+
+```swift
+let relaxed = WeatherServiceMock(defaults: .voidAndOptional)
+```
+
 Return sequences and throw sequences each consume values in order, then repeat the final outcome. Throwing members can mix typed outcomes in one registration:
 
 ```swift
@@ -233,7 +242,7 @@ On Apple platforms, `@Mockable` supports `@objc` protocols inheriting `NSObjectP
 
 ## Strict behavior
 
-Generated mocks do not invent defaults for `Void`, optionals, properties, setters, or subscripts. Value-returning members need a matching `Given`; `Perform` also satisfies `Void` members because it installs the required `Void` outcome. Untyped throwing members throw `MockError.unstubbed`. Nonthrowing, `rethrows`, and incompatible typed-throws members stop with a precise precondition failure because they cannot legally throw a framework error. Required initializers are the only unstubbed exception.
+Generated mocks are strict unless constructed with `defaults: .void` or `.voidAndOptional`. Those opt-in policies supply only unstubbed, nonthrowing instance `Void` members and, for `.voidAndOptional`, optional results; properties, setters, and subscripts follow the same rule. Calls still record normally. Value-returning members otherwise need a matching `Given`; `Perform` also satisfies `Void` members because it installs the required `Void` outcome. Throwing and static members always remain strict. Untyped throwing members throw `MockError.unstubbed`. Nonthrowing, `rethrows`, and incompatible typed-throws members stop with a precise precondition failure because they cannot legally throw a framework error. Required initializers are the only unstubbed exception.
 
 ## Test runners
 

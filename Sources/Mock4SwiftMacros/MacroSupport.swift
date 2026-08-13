@@ -76,6 +76,55 @@ func strippingEscapingAttribute(from type: String) -> String {
     type.replacingOccurrences(of: "@escaping\\s*", with: "", options: .regularExpression)
 }
 
+/// Returns whether a type is structurally an optional, without confusing a
+/// function that returns an optional or an optional metatype for an optional
+/// result itself.
+func isOptionalType(_ type: TypeSyntax) -> Bool {
+    if type.as(OptionalTypeSyntax.self) != nil {
+        return true
+    }
+    if let attributed = type.as(AttributedTypeSyntax.self) {
+        return isOptionalType(attributed.baseType)
+    }
+    if let tuple = type.as(TupleTypeSyntax.self), tuple.elements.count == 1,
+       let element = tuple.elements.first {
+        return isOptionalType(element.type)
+    }
+    if let identifier = type.as(IdentifierTypeSyntax.self) {
+        return identifier.name.text == "Optional"
+    }
+    if let member = type.as(MemberTypeSyntax.self),
+       member.name.text == "Optional",
+       let base = member.baseType.as(IdentifierTypeSyntax.self) {
+        return base.name.text == "Swift"
+    }
+    return false
+}
+
+func isVoidType(_ type: TypeSyntax) -> Bool {
+    if let attributed = type.as(AttributedTypeSyntax.self) {
+        return isVoidType(attributed.baseType)
+    }
+    if let tuple = type.as(TupleTypeSyntax.self) {
+        if tuple.elements.isEmpty {
+            return true
+        }
+        if tuple.elements.count == 1, let element = tuple.elements.first {
+            return isVoidType(element.type)
+        }
+        return false
+    }
+    if let identifier = type.as(IdentifierTypeSyntax.self) {
+        return identifier.name.text == "Void"
+    }
+    if let member = type.as(MemberTypeSyntax.self),
+       member.name.text == "Void",
+       let base = member.baseType.as(IdentifierTypeSyntax.self) {
+        return base.name.text == "Swift"
+    }
+    return false
+}
+
 func opaqueParameterType(_ text: String, position: Int) -> (name: String, constraint: String)? {
     var type = text
     for prefix in ["inout ", "borrowing ", "consuming ", "sending "] where type.hasPrefix(prefix) {

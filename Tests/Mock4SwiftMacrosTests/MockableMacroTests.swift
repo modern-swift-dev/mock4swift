@@ -38,12 +38,22 @@ final class MockableMacroTests: XCTestCase {
             protocol Empty {}
 
             final class EmptyMock: Empty, Mock, InOrderMock, _Mock4SwiftExhaustiveMock, _Mock4SwiftCallInspectable {
+                private let _mock4SwiftDefaultPolicy: MockDefaultPolicy
+
                 fileprivate var _mock4SwiftOrderedInvocations: [_Mock4SwiftInvocation] {
                     []
                 }
 
                 var _mock4SwiftUnverifiedInvocations: [_Mock4SwiftInvocation] {
                     []
+                }
+
+                init() {
+                    _mock4SwiftDefaultPolicy = .strict
+                }
+
+                init(defaults: MockDefaultPolicy) {
+                    _mock4SwiftDefaultPolicy = defaults
                 }
 
                 struct Given {
@@ -321,13 +331,37 @@ final class MockableMacroTests: XCTestCase {
             ))
         XCTAssertTrue(source.contains("public struct Calls"))
         XCTAssertTrue(source.contains("public struct StaticCalls"))
-        XCTAssertTrue(source.contains("public init() {}"))
+        XCTAssertTrue(source.contains("public init() { _mock4SwiftDefaultPolicy = .strict }"))
+        XCTAssertTrue(source.contains("public init(defaults: MockDefaultPolicy) { _mock4SwiftDefaultPolicy = defaults }"))
         XCTAssertTrue(source.contains("public var _mock4SwiftUnverifiedInvocations: [_Mock4SwiftInvocation]"))
         XCTAssertTrue(source.contains("public static var _mock4SwiftUnverifiedInvocations: [_Mock4SwiftInvocation]"))
         XCTAssertTrue(source.contains("StaticMockRegistry.shared.unverifiedInvocations(owner: Self.self)"))
         XCTAssertTrue(source.contains("markVerified: { sequence in mock._mock_load_0._mock4SwiftMarkVerified(sequence: sequence) }"))
         XCTAssertTrue(source.contains("markVerified: { sequence in mock._mock_value_get_1._mock4SwiftMarkVerified(sequence: sequence) }"))
         XCTAssertTrue(source.contains("markVerified: { sequence in mock._mock_subscript_get_"))
+    }
+
+    func testDefaultPolicyGenerationUsesStructuralVoidAndAvoidsInitializerCollisions() throws {
+        let source = try peerSource(
+            """
+            protocol Service {
+                init(seed: Int)
+                init(seed: Int, defaults: MockDefaultPolicy)
+                init<T>(value: T)
+                init<U>(value: U, defaults: MockDefaultPolicy)
+                init(_ defaults: Int)
+                var done: Swift.Void { get }
+                subscript(_ index: Int) -> (Void) { get }
+            }
+            """
+        )
+
+        XCTAssertFalse(source.contains("init(seed: Int, defaults _mock4SwiftDefaults: MockDefaultPolicy)"))
+        XCTAssertFalse(source.contains("init<U>(value: U, defaults _mock4SwiftDefaults: MockDefaultPolicy)"))
+        XCTAssertTrue(source.contains("init(_ defaults: Int, defaults _mock4SwiftDefaults: MockDefaultPolicy)"))
+        XCTAssertTrue(source.contains("var done: Swift.Void"))
+        XCTAssertTrue(source.contains(".invoke((), unstubbed:"))
+        XCTAssertGreaterThanOrEqual(source.components(separatedBy: "case .void, .voidAndOptional").count - 1, 2)
     }
 
     func testGeneratedMocksExposeTypedCallSelectors() throws {

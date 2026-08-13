@@ -101,6 +101,19 @@ struct FunctionMember {
         declaration.signature.returnClause.map { rewriteType($0.type.trimmedDescription, replacements: replacements, mockType: mockType) } ?? "Void"
     }
 
+    var defaultFallback: String? {
+        guard !isStatic, !isThrowing, !isRethrows else {
+            return nil
+        }
+        if declaration.signature.returnClause.map({ isVoidType($0.type) }) ?? true {
+            return "{ switch self._mock4SwiftDefaultPolicy { case .void, .voidAndOptional: (); case .strict: preconditionFailure(\"Unstubbed nonthrowing member \(displayName)\") } }"
+        }
+        if let returnType = declaration.signature.returnClause?.type, isOptionalType(returnType) {
+            return "{ switch self._mock4SwiftDefaultPolicy { case .voidAndOptional: nil; case .strict, .void: preconditionFailure(\"Unstubbed nonthrowing member \(displayName)\") } }"
+        }
+        return nil
+    }
+
     var isStatic: Bool {
         declaration.modifiers.contains { ["static", "class"].contains($0.name.text) }
     }
@@ -342,7 +355,8 @@ struct FunctionMember {
             ? "_ephemeral0"
             : "(" + ephemeralParameters.enumerated().map { "\($0.element.local): _ephemeral\($0.offset)" }.joined(separator: ", ") + ")"
         let invokeName = isAsync ? "invokeAsync" : "invoke"
-        var invocation = "try \(awaitPrefix)\(channel).\(invokeName)(\(argumentsExpression)\(hasEphemeralDispatcher ? ", ephemeral: \(ephemeralValue)" : ""))"
+        let fallback = defaultFallback.map { ", unstubbed: \($0)" } ?? ""
+        var invocation = "try \(awaitPrefix)\(channel).\(invokeName)(\(argumentsExpression)\(hasEphemeralDispatcher ? ", ephemeral: \(ephemeralValue)" : "")\(fallback))"
         for (offset, parameter) in ephemeralParameters.enumerated().reversed() {
             invocation = "try \(awaitPrefix)withoutActuallyEscaping(\(parameter.local)) { _ephemeral\(offset) in \(invocation) }"
         }

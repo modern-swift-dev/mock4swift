@@ -20,6 +20,8 @@ struct SubscriptMember {
     let getterHeader: String
     let availability: String
     let witnessAttributes: String
+    let isOptionalResult: Bool
+    let isVoidResult: Bool
 
     var isStatic: Bool {
         declaration.modifiers.contains { ["static", "class"].contains($0.name.text) }
@@ -81,6 +83,8 @@ struct SubscriptMember {
         }
         let settable = (declaration.accessorBlock?.trimmedDescription ?? "{ get }").contains("set")
         let valueType = rewriteType(declaration.returnClause.type.trimmedDescription, replacements: replacements, mockType: mockType)
+        let isOptionalResult = isOptionalType(declaration.returnClause.type)
+        let isVoidResult = isVoidType(declaration.returnClause.type)
         let accessors: [AccessorDeclSyntax] = {
             guard let block = declaration.accessorBlock, case let .accessors(list) = block.accessors else {
                 return []
@@ -103,7 +107,9 @@ struct SubscriptMember {
             mockType: mockType,
             getterHeader: getterHeader,
             availability: availability,
-            witnessAttributes: witnessAttributes
+            witnessAttributes: witnessAttributes,
+            isOptionalResult: isOptionalResult,
+            isVoidResult: isVoidResult
         )]
         if settable {
             result.append(Self(
@@ -119,7 +125,9 @@ struct SubscriptMember {
                 mockType: mockType,
                 getterHeader: getterHeader,
                 availability: availability,
-                witnessAttributes: witnessAttributes
+                witnessAttributes: witnessAttributes,
+                isOptionalResult: isOptionalResult,
+                isVoidResult: isVoidResult
             ))
         }
         return result
@@ -164,6 +172,19 @@ struct SubscriptMember {
 
     var outputType: String {
         kind == .get ? valueType : "Void"
+    }
+
+    var defaultFallback: String? {
+        guard !isStatic, !isThrowing else {
+            return nil
+        }
+        if kind == .set || isVoidResult {
+            return "{ switch self._mock4SwiftDefaultPolicy { case .void, .voidAndOptional: (); case .strict: preconditionFailure(\"Unstubbed nonthrowing member subscript.get\") } }"
+        }
+        if isOptionalResult {
+            return "{ switch self._mock4SwiftDefaultPolicy { case .voidAndOptional: nil; case .strict, .void: preconditionFailure(\"Unstubbed nonthrowing member subscript.get\") } }"
+        }
+        return nil
     }
 
     var getterEffects: String {
@@ -306,7 +327,8 @@ struct SubscriptMember {
         }
         let generics = genericClause
         let whereClause = declaration.genericWhereClause.map { rewriteType($0.trimmedDescription, replacements: replacements, mockType: mockType) } ?? ""
-        let call = "try \(isAsync ? "await " : "")\(witnessChannelReference).\(isAsync ? "invokeAsync" : "invoke")(\(invocationArguments))"
+        let fallback = defaultFallback.map { ", unstubbed: \($0)" } ?? ""
+        let call = "try \(isAsync ? "await " : "")\(witnessChannelReference).\(isAsync ? "invokeAsync" : "invoke")(\(invocationArguments)\(fallback))"
         let getterBody = if let typedError {
             "\(witnessRegistryResolution)do { return \(call) }\n            catch let error as \(typedError) { throw error }\n            catch { preconditionFailure(\"Invalid or unstubbed typed-throws member subscript.get: \\(error)\") }"
         } else if isThrowing {
@@ -328,11 +350,15 @@ struct SubscriptMember {
             mockType: mockType,
             getterHeader: getterHeader,
             availability: availability,
-            witnessAttributes: witnessAttributes
+            witnessAttributes: witnessAttributes,
+            isOptionalResult: isOptionalResult,
+            isVoidResult: isVoidResult
         )
         let setterArgs = setterMember.invocationArguments
+        let setterFallback = !isStatic ?
+            ", unstubbed: { switch self._mock4SwiftDefaultPolicy { case .void, .voidAndOptional: (); case .strict: preconditionFailure(\"Unstubbed nonthrowing member subscript.set\") } }" : ""
         let setter = isReadWrite ?
-            "\n        set {\n            \(setterMember.witnessRegistryResolution)do { return try \(setterMember.witnessChannelReference).invoke(\(setterArgs)) }\n            catch { preconditionFailure(\"Unstubbed nonthrowing member subscript.set: \\(error)\") }\n        }" :
+            "\n        set {\n            \(setterMember.witnessRegistryResolution)do { return try \(setterMember.witnessChannelReference).invoke(\(setterArgs)\(setterFallback)) }\n            catch { preconditionFailure(\"Unstubbed nonthrowing member subscript.set: \\(error)\") }\n        }" :
             ""
         var parameterClause = rewriteType(declaration.parameterClause.trimmedDescription, replacements: replacements, mockType: mockType)
         for opaque in opaqueParameters {

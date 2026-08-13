@@ -10,6 +10,21 @@ import Testing
     #expect(try member.invoke("other") == 1)
 }
 
+@Test func unstubbedFallbackDoesNotMaskConfiguredErrors() throws {
+    let member = MockMember<Void, Void, Int>()
+    member.addStub(matching: { _ in true }, outcomes: [.throwing(MockError.unstubbed("configured"))])
+
+    #expect(throws: MockError.unstubbed("configured")) {
+        try member.invoke((), unstubbed: { 1 })
+    }
+}
+
+@Test func transientUnstubbedFallbackRunsAfterRecording() throws {
+    let member = TransientMockMember<Void, Void, Void>()
+    try member.invoke((), unstubbed: { () })
+    #expect(member.invocationCount == 1)
+}
+
 @Test func moreSpecificStubBeatsNewerRegistration() throws {
     let member = MockMember<String, Void, Int>()
     member.addStub(matching: { $0 == "x" }, specificity: 1, outcomes: [.returning(1)])
@@ -79,9 +94,9 @@ import Testing
 @Test func asyncInvocationRunsEphemeralActionBeforeAnswer() async throws {
     let member = MockMember<Int, Int, Int>()
     var actionValue = 0
-    member.addAction(matching: { _ in true }) { arguments, ephemeral in
+    member.addAction(matching: { _ in true }, action: { arguments, ephemeral in
         actionValue = arguments + ephemeral
-    }
+    })
     member.addStub(
         matching: { _ in true },
         outcomes: [.answering { arguments async in

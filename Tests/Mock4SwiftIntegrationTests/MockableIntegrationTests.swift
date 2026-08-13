@@ -131,6 +131,20 @@ private struct NoncopyableToken: ~Copyable {
     subscript(_ key: some Hashable) -> String { get async throws }
 }
 
+@Mockable private protocol DefaultPolicyService {
+    var value: Int { get set }
+    var optionalValue: Int? { get }
+    var swiftOptionalValue: String? { get }
+    func save(_ value: Int)
+    func optionalResult() -> Int?
+    func optionalClosure() -> (() -> Void)?
+    func asyncSave() async
+    func asyncOptional() async -> Int?
+    func throwingVoid() throws
+    static func staticSave()
+    subscript(_ key: String) -> Int { get set }
+}
+
 private protocol IdentifiedValue {
     var id: Int { get }
 }
@@ -747,6 +761,41 @@ private struct Identifier: IdentifiedValue, Equatable {
     mock.fetch { _ in }
 
     Verify(mock, 1).fetch(completion: .any)
+}
+
+@Test private func generatedDefaultPoliciesRelaxOnlyEligibleInstanceMembers() async throws {
+    let voidMock = DefaultPolicyServiceMock(defaults: .void)
+    voidMock.save(1)
+    voidMock.value = 2
+    voidMock["key"] = 3
+    Verify(voidMock, 1).save(.value(1))
+    Verify(voidMock, 1).value(set: .value(2))
+    Verify(voidMock, 1).subscriptSet(.value("key"), value: .value(3))
+
+    let optionalMock = DefaultPolicyServiceMock(defaults: .voidAndOptional)
+    #expect(optionalMock.optionalResult() == nil)
+    #expect(optionalMock.optionalValue == nil)
+    #expect(optionalMock.swiftOptionalValue == nil)
+    #expect(optionalMock.optionalClosure() == nil)
+    await optionalMock.asyncSave()
+    #expect(await optionalMock.asyncOptional() == nil)
+    Verify(optionalMock, 1).optionalResult()
+    Verify(optionalMock, 1).optionalValue()
+    Verify(optionalMock, 1).swiftOptionalValue()
+    Verify(optionalMock, 1).optionalClosure()
+    Verify(optionalMock, 1).asyncSave()
+    Verify(optionalMock, 1).asyncOptional()
+
+    let requiredMock = AdvancedServiceMock(seed: 7, defaults: .void)
+    requiredMock["key"] = 4
+    Verify(requiredMock, 1).initializer(seed: .value(7))
+    Verify(requiredMock, 1).subscriptSet(.value("key"), value: .value(4))
+
+    resetMock(optionalMock)
+    #expect(optionalMock.optionalResult() == nil)
+    #expect(throws: MockError.unstubbed("throwingVoid")) {
+        try optionalMock.throwingVoid()
+    }
 }
 
 #if canImport(ObjectiveC)
