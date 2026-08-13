@@ -218,6 +218,19 @@ private struct Identifier: IdentifiedValue, Equatable {
     #expect(performedCities == ["Toronto", "Toronto", "Toronto"])
 }
 
+@Test private func generatedConfigurationInitializersRunAfterInitializerRecording() {
+    let mock = WeatherServiceMock { configured in
+        Given(configured).greeting().willReturn("configured")
+    }
+    #expect(mock.greeting() == "configured")
+
+    let required = AdvancedServiceMock(seed: 12) { configured in
+        Given(configured).subscriptGet(.value("answer")).willReturn(42)
+    }
+    #expect(required["answer"] == 42)
+    Verify(required, 1).initializer(seed: .value(12))
+}
+
 @Test private func generatedCallsCanWaitWithoutVerifying() async throws {
     let mock = WeatherServiceMock()
     Given(mock).temperature(for: .any).willReturn(20)

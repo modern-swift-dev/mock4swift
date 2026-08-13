@@ -269,8 +269,12 @@ import Testing
         let member = MockMember<Int, () -> Void, Int>(name: "call")
 
         func call(id: Int, completion: () -> Void) -> Int {
-            withoutActuallyEscaping(completion) {
-                try! member.invoke(id, ephemeral: $0)
+            do {
+                return try withoutActuallyEscaping(completion) {
+                    try member.invoke(id, ephemeral: $0)
+                }
+            } catch {
+                preconditionFailure("Unexpected unstubbed call: \(error)")
             }
         }
     }
@@ -283,9 +287,9 @@ import Testing
         outcomes: [.answering { _, completion in completion(); return 7 }]
     )
     var selected: [Int] = []
-    mock.member.addAction(matching: { _ in true }) { _, _ in selected.append(1) }
-    mock.member.addAction(matching: { $0 == 1 }, specificity: 1) { _, _ in selected.append(2) }
-    mock.member.addAction(matching: { $0 == 1 }, specificity: 1) { _, _ in selected.append(3) }
+    mock.member.addAction(matching: { _ in true }, action: { _, _ in selected.append(1) })
+    mock.member.addAction(matching: { $0 == 1 }, specificity: 1, action: { _, _ in selected.append(2) })
+    mock.member.addAction(matching: { $0 == 1 }, specificity: 1, action: { _, _ in selected.append(3) })
 
     weak var retained: Probe?
     do {

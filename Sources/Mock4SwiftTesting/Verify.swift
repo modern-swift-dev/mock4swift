@@ -1,4 +1,4 @@
-import Mock4Swift
+@_exported public import Mock4Swift
 import Testing
 
 public func Verify<M: Mock>(
@@ -46,8 +46,8 @@ public func VerifyInOrder(
     record(order.verification(), sourceLocation: sourceLocation)
 }
 
-public func VerifyNoMoreInteractions<M: _Mock4SwiftExhaustiveMock>(
-    _ mock: M,
+public func VerifyNoMoreInteractions(
+    _ mock: some _Mock4SwiftExhaustiveMock,
     sourceLocation: SourceLocation = SourceLocation(fileID: #fileID, filePath: #filePath, line: #line, column: #column)
 ) {
     record(_mock4SwiftNoMoreInteractionsResult(mock._mock4SwiftUnverifiedInvocations), sourceLocation: sourceLocation)

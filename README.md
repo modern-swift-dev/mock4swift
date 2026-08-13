@@ -62,6 +62,15 @@ requirements always remain strict.
 let relaxed = WeatherServiceMock(defaults: .voidAndOptional)
 ```
 
+Mocks can be configured inline. Required initializer calls are recorded before
+the synchronous configuration closure runs:
+
+```swift
+let service = ServiceMock(seed: seed) {
+    Given($0).load().willReturn(value)
+}
+```
+
 Return sequences and throw sequences each consume values in order, then repeat the final outcome. Throwing members can mix typed outcomes in one registration:
 
 ```swift

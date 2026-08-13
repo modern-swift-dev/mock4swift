@@ -56,6 +56,11 @@ final class MockableMacroTests: XCTestCase {
                     _mock4SwiftDefaultPolicy = defaults
                 }
 
+                init(defaults: MockDefaultPolicy = .strict, configure: (EmptyMock) -> Void) {
+                    _mock4SwiftDefaultPolicy = defaults
+                    configure(self)
+                }
+
                 struct Given {
                     fileprivate let mock: EmptyMock
                 }
@@ -362,6 +367,24 @@ final class MockableMacroTests: XCTestCase {
         XCTAssertTrue(source.contains("var done: Swift.Void"))
         XCTAssertTrue(source.contains(".invoke((), unstubbed:"))
         XCTAssertGreaterThanOrEqual(source.components(separatedBy: "case .void, .voidAndOptional").count - 1, 2)
+    }
+
+    func testConfigurationInitializersMirrorRequiredInitializerEffects() throws {
+        let source = try peerSource(
+            """
+            protocol Service {
+                init?<Value>(value: Value) async throws where Value: Sendable
+                init(configure: Int)
+            }
+            """
+        )
+
+        XCTAssertTrue(source
+            .contains(
+                "init?<Value>(value: Value, defaults _mock4SwiftDefaults: MockDefaultPolicy = .strict, configure _mock4SwiftConfigure: (ServiceMock) -> Void) async throws where Value: Sendable"
+            ))
+        XCTAssertTrue(source.contains(".record(value)\n        _mock4SwiftConfigure(self)"))
+        XCTAssertFalse(source.contains("init(configure: Int, defaults _mock4SwiftDefaults: MockDefaultPolicy = .strict, configure _mock4SwiftConfigure:"))
     }
 
     func testGeneratedMocksExposeTypedCallSelectors() throws {

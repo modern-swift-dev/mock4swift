@@ -135,6 +135,13 @@ struct MockGenerator {
                 continue
             }
             if let initializer = item.decl.as(InitializerDeclSyntax.self) {
+                if initializer.signature.parameterClause.parameters.contains(where: { ["defaults", "configure"].contains($0.firstName.text) }) {
+                    diagnoseWarning(
+                        "configuration initializer omitted because defaults: and configure: are reserved labels",
+                        at: initializer,
+                        in: context
+                    )
+                }
                 if initializer.signature.parameterClause.parameters.contains(where: {
                     $0.type.trimmedDescription.contains("->") && !$0.trimmedDescription.contains("@escaping")
                 }) {
@@ -234,7 +241,8 @@ struct MockGenerator {
         let initializerSignatures = Set(initializers.map(\.witnessCollisionKey))
         let initializerWitnesses = initializers.flatMap { initializer in
             let defaults = initializerSignatures.contains(initializer.defaultsCollisionKey) ? "" : initializer.defaultsWitness
-            return [initializer.witness, defaults]
+            let configuration = initializerSignatures.contains(initializer.configurationCollisionKey) ? "" : initializer.configurationWitness
+            return [initializer.witness, defaults, configuration]
         }.filter { !$0.isEmpty }.joined(separator: "\n\n")
         let memberWitnesses = all.map(\.witness).filter { !$0.isEmpty }
         let witnesses = (memberWitnesses + (initializerWitnesses.isEmpty ? [] : [initializerWitnesses])).joined(separator: "\n\n")
@@ -273,8 +281,8 @@ struct MockGenerator {
         let defaultPolicy = "    \(isolation)private let _mock4SwiftDefaultPolicy: MockDefaultPolicy\n\n"
         let defaultInitializer: String = if initializers.isEmpty {
             isObjectiveC
-                ? "    \(access)override init() {\n        _mock4SwiftDefaultPolicy = .strict\n        super.init()\n    }\n\n    \(access)init(defaults: MockDefaultPolicy) {\n        _mock4SwiftDefaultPolicy = defaults\n        super.init()\n    }\n\n"
-                : "    \(access)init() { _mock4SwiftDefaultPolicy = .strict }\n\n    \(access)init(defaults: MockDefaultPolicy) { _mock4SwiftDefaultPolicy = defaults }\n\n"
+                ? "    \(access)override init() {\n        _mock4SwiftDefaultPolicy = .strict\n        super.init()\n    }\n\n    \(access)init(defaults: MockDefaultPolicy) {\n        _mock4SwiftDefaultPolicy = defaults\n        super.init()\n    }\n\n    \(access)init(defaults: MockDefaultPolicy = .strict, configure: (\(mockType)) -> Void) {\n        _mock4SwiftDefaultPolicy = defaults\n        super.init()\n        configure(self)\n    }\n\n"
+                : "    \(access)init() { _mock4SwiftDefaultPolicy = .strict }\n\n    \(access)init(defaults: MockDefaultPolicy) { _mock4SwiftDefaultPolicy = defaults }\n\n    \(access)init(defaults: MockDefaultPolicy = .strict, configure: (\(mockType)) -> Void) {\n        _mock4SwiftDefaultPolicy = defaults\n        configure(self)\n    }\n\n"
         } else {
             ""
         }

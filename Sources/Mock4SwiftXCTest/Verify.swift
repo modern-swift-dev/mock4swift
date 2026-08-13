@@ -1,4 +1,4 @@
-import Mock4Swift
+@_exported public import Mock4Swift
 import XCTest
 
 public func Verify<M: Mock>(
@@ -51,8 +51,8 @@ public func VerifyInOrder(
     report(order.verification(), file: file, line: line)
 }
 
-public func VerifyNoMoreInteractions<M: _Mock4SwiftExhaustiveMock>(
-    _ mock: M,
+public func VerifyNoMoreInteractions(
+    _ mock: some _Mock4SwiftExhaustiveMock,
     file: StaticString = #filePath,
     line: UInt = #line
 ) {

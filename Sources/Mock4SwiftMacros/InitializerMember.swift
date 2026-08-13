@@ -86,14 +86,18 @@ struct InitializerMember {
     }
 
     var witnessCollisionKey: String {
-        initializerCollisionKey(appendingDefaults: false)
+        initializerCollisionKey()
     }
 
     var defaultsCollisionKey: String {
-        initializerCollisionKey(appendingDefaults: true)
+        initializerCollisionKey(appending: ["defaults:MockDefaultPolicy"])
     }
 
-    private func initializerCollisionKey(appendingDefaults: Bool) -> String {
+    var configurationCollisionKey: String {
+        initializerCollisionKey(appending: ["defaults:MockDefaultPolicy", "configure:(\(mockType))->Void"])
+    }
+
+    private func initializerCollisionKey(appending: [String] = []) -> String {
         let genericNames = declaration.genericParameterClause?.parameters.enumerated().map {
             ($0.element.name.text, "_Generic\($0.offset)")
         } ?? []
@@ -110,9 +114,7 @@ struct InitializerMember {
             let type = rewriteType(parameter.type.trimmedDescription, replacements: replacements, mockType: mockType)
             return "\(parameter.firstName.text):\(canonicalize(type))\(parameter.ellipsis?.text ?? "")"
         }
-        if appendingDefaults {
-            parameterKeys.append("defaults:MockDefaultPolicy")
-        }
+        parameterKeys.append(contentsOf: appending)
         let generic = declaration.genericParameterClause.map {
             rewriteType($0.trimmedDescription, replacements: replacements, mockType: mockType)
         } ?? ""
@@ -225,6 +227,36 @@ struct InitializerMember {
         let modifierPrefix = modifiers.isEmpty ? "" : modifiers + " "
         let recording = isTransient ? "\(usesRegistry ? "member" : channelName).record()" : "\(usesRegistry ? "member" : channelName).record(\(argumentsExpression))"
         return "\(attributePrefix)    \(access)\(modifierPrefix)init\(declaration.optionalMark?.text ?? "")\(genericClause)\(parameterClause)\(effects)\(whereClause) {\n        _mock4SwiftDefaultPolicy = _mock4SwiftDefaults\n        \(witnessRegistryResolution)\(recording)\n    }"
+    }
+
+    var configurationWitness: String {
+        guard !declaration.signature.parameterClause.parameters.contains(where: { ["defaults", "configure"].contains($0.firstName.text) }) else {
+            return ""
+        }
+        var parameterClause = rewriteType(declaration.signature.parameterClause.trimmedDescription, replacements: replacements, mockType: mockType)
+        for opaque in opaqueParameters {
+            parameterClause.replaceFirst("some \(opaque.constraint)", with: opaque.name)
+        }
+        let appended = "defaults _mock4SwiftDefaults: MockDefaultPolicy = .strict, configure _mock4SwiftConfigure: (\(mockType)) -> Void"
+        parameterClause.insert(
+            contentsOf: parameterClause == "()" ? appended : ", " + appended,
+            at: parameterClause.index(before: parameterClause.endIndex)
+        )
+        let effects = declaration.signature.effectSpecifiers.map { " " + $0.trimmedDescription } ?? ""
+        let whereClause = declaration.genericWhereClause.map { " " + rewriteType($0.trimmedDescription, replacements: replacements, mockType: mockType) } ?? ""
+        let attributes = declaration.attributes.compactMap { attribute -> String? in
+            guard let attribute = attribute.as(AttributeSyntax.self) else {
+                return nil
+            }
+            let name = attribute.attributeName.trimmedDescription.split(separator: ".").last
+            return name == "objc" ? nil : attribute.trimmedDescription
+        }.joined(separator: "\n    ")
+        let attributePrefix = attributes.isEmpty ? "" : "    " + attributes + "\n"
+        let ignored = Set(["required", "public", "package", "internal", "fileprivate", "private", "optional"])
+        let modifiers = declaration.modifiers.map(\.name.text).filter { !ignored.contains($0) }.joined(separator: " ")
+        let modifierPrefix = modifiers.isEmpty ? "" : modifiers + " "
+        let recording = isTransient ? "\(usesRegistry ? "member" : channelName).record()" : "\(usesRegistry ? "member" : channelName).record(\(argumentsExpression))"
+        return "\(attributePrefix)    \(access)\(modifierPrefix)init\(declaration.optionalMark?.text ?? "")\(genericClause)\(parameterClause)\(effects)\(whereClause) {\n        _mock4SwiftDefaultPolicy = _mock4SwiftDefaults\n        \(witnessRegistryResolution)\(recording)\n        _mock4SwiftConfigure(self)\n    }"
     }
 
     var verifyFactory: String {
