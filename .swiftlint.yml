@@ -15,6 +15,7 @@ disabled_rules:
   - blanket_disable_command
   - non_optional_string_data_conversion
   - function_body_length
+  - empty_count
 
 opt_in_rules:
   - contains_over_range_nil_comparison
