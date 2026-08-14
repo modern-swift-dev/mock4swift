@@ -105,11 +105,12 @@ struct FunctionMember {
         guard !isStatic, !isThrowing, !isRethrows else {
             return nil
         }
+        let policy = isAsync ? "_mock4SwiftDefaultPolicy" : "self._mock4SwiftDefaultPolicy"
         if declaration.signature.returnClause.map({ isVoidType($0.type) }) ?? true {
-            return "{ switch self._mock4SwiftDefaultPolicy { case .void, .voidAndOptional: (); case .strict: preconditionFailure(\"Unstubbed nonthrowing member \(displayName)\") } }"
+            return "{ switch \(policy) { case .void, .voidAndOptional: (); case .strict: preconditionFailure(\"Unstubbed nonthrowing member \(displayName)\") } }"
         }
         if let returnType = declaration.signature.returnClause?.type, isOptionalType(returnType) {
-            return "{ switch self._mock4SwiftDefaultPolicy { case .voidAndOptional: nil; case .strict, .void: preconditionFailure(\"Unstubbed nonthrowing member \(displayName)\") } }"
+            return "{ switch \(policy) { case .voidAndOptional: nil; case .strict, .void: preconditionFailure(\"Unstubbed nonthrowing member \(displayName)\") } }"
         }
         return nil
     }
@@ -356,6 +357,9 @@ struct FunctionMember {
             : "(" + ephemeralParameters.enumerated().map { "\($0.element.local): _ephemeral\($0.offset)" }.joined(separator: ", ") + ")"
         let invokeName = isAsync ? "invokeAsync" : "invoke"
         let fallback = defaultFallback.map { ", unstubbed: \($0)" } ?? ""
+        let defaultPolicySnapshot = isAsync && defaultFallback != nil
+            ? "let _mock4SwiftDefaultPolicy = self._mock4SwiftDefaultPolicy\n        "
+            : ""
         var invocation = "try \(awaitPrefix)\(channel).\(invokeName)(\(argumentsExpression)\(hasEphemeralDispatcher ? ", ephemeral: \(ephemeralValue)" : "")\(fallback))"
         for (offset, parameter) in ephemeralParameters.enumerated().reversed() {
             invocation = "try \(awaitPrefix)withoutActuallyEscaping(\(parameter.local)) { _ephemeral\(offset) in \(invocation) }"
@@ -385,7 +389,7 @@ struct FunctionMember {
         }
         return availabilityPrefix(indentation: "    ") + attributes + """
             \(signature) {
-                \(witnessRegistryResolution)do { return \(invocation) }
+                \(witnessRegistryResolution)\(defaultPolicySnapshot)do { return \(invocation) }
                 catch { preconditionFailure("Unstubbed nonthrowing member \(displayName): \\(error)") }
             }
         """.split(separator: "\n", omittingEmptySubsequences: false).map { "    " + $0 }.joined(separator: "\n")

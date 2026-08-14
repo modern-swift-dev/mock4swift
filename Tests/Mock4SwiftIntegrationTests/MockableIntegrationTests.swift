@@ -140,6 +140,10 @@ private struct NoncopyableToken: ~Copyable {
     func optionalClosure() -> (() -> Void)?
     func asyncSave() async
     func asyncOptional() async -> Int?
+    @MainActor func mainActorAsyncSave() async
+    @MainActor func mainActorAsyncOptional() async -> Int?
+    @MainActor var mainActorAsyncOptionalValue: Int? { get async }
+    @MainActor subscript(_ key: Bool) -> Int? { get async }
     func throwingVoid() throws
     static func staticSave()
     subscript(_ key: String) -> Int { get set }
@@ -809,6 +813,20 @@ private struct Identifier: IdentifiedValue, Equatable {
     #expect(throws: MockError.unstubbed("throwingVoid")) {
         try optionalMock.throwingVoid()
     }
+}
+
+@Test @MainActor private func generatedMainActorAsyncDefaultPoliciesCompileAndReturnDefaults() async {
+    let mock = DefaultPolicyServiceMock(defaults: .voidAndOptional)
+
+    await mock.mainActorAsyncSave()
+    #expect(await mock.mainActorAsyncOptional() == nil)
+    #expect(await mock.mainActorAsyncOptionalValue == nil)
+    #expect(await mock[true] == nil)
+
+    Verify(mock, 1).mainActorAsyncSave()
+    Verify(mock, 1).mainActorAsyncOptional()
+    Verify(mock, 1).mainActorAsyncOptionalValue()
+    Verify(mock, 1).subscriptGet(.value(true))
 }
 
 #if canImport(ObjectiveC)

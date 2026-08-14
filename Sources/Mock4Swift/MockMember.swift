@@ -182,7 +182,11 @@ public final class MockMember<Arguments, Ephemeral, Output>: @unchecked Sendable
         try invoke(arguments, ephemeral: (), unstubbed: unstubbed)
     }
 
-    public func invokeAsync(_ arguments: Arguments, ephemeral: borrowing Ephemeral, unstubbed: (() -> Output)? = nil) async throws -> Output {
+    public func invokeAsync(
+        _ arguments: Arguments,
+        ephemeral: borrowing Ephemeral,
+        unstubbed: (@Sendable () -> Output)? = nil
+    ) async throws -> Output {
         let sequence = nextMockInvocationSequence()
         let (snapshot, waiters) = lock.withLock { () -> (([Action], [Stub], [ActionStub]), [CheckedContinuation<Void, any Error>]) in
             invocations.append(.init(sequence: sequence, arguments: arguments))
@@ -231,7 +235,10 @@ public final class MockMember<Arguments, Ephemeral, Output>: @unchecked Sendable
         try await invokeAsync(arguments, ephemeral: ())
     }
 
-    public func invokeAsync(_ arguments: Arguments, unstubbed: (() -> Output)?) async throws -> Output where Ephemeral == Void {
+    public func invokeAsync(
+        _ arguments: Arguments,
+        unstubbed: (@Sendable () -> Output)?
+    ) async throws -> Output where Ephemeral == Void {
         try await invokeAsync(arguments, ephemeral: (), unstubbed: unstubbed)
     }
 

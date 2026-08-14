@@ -369,6 +369,26 @@ final class MockableMacroTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(source.components(separatedBy: "case .void, .voidAndOptional").count - 1, 2)
     }
 
+    func testAsyncDefaultPolicySnapshotsActorIsolatedStateForSendableFallback() throws {
+        let source = try peerSource(
+            """
+            protocol Service {
+                @MainActor func save() async
+                @MainActor func value() async -> Int?
+                @MainActor var optionalValue: Int? { get async }
+                @MainActor subscript(_ key: Int) -> Int? { get async }
+            }
+            """
+        )
+
+        XCTAssertEqual(
+            source.components(separatedBy: "let _mock4SwiftDefaultPolicy = self._mock4SwiftDefaultPolicy").count - 1,
+            4
+        )
+        XCTAssertTrue(source.contains("invokeAsync((), unstubbed: { switch _mock4SwiftDefaultPolicy"))
+        XCTAssertFalse(source.contains("invokeAsync((), unstubbed: { switch self._mock4SwiftDefaultPolicy"))
+    }
+
     func testConfigurationInitializersMirrorRequiredInitializerEffects() throws {
         let source = try peerSource(
             """

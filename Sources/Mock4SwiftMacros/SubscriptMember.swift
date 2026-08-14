@@ -178,11 +178,12 @@ struct SubscriptMember {
         guard !isStatic, !isThrowing else {
             return nil
         }
+        let policy = isAsync ? "_mock4SwiftDefaultPolicy" : "self._mock4SwiftDefaultPolicy"
         if kind == .set || isVoidResult {
-            return "{ switch self._mock4SwiftDefaultPolicy { case .void, .voidAndOptional: (); case .strict: preconditionFailure(\"Unstubbed nonthrowing member subscript.get\") } }"
+            return "{ switch \(policy) { case .void, .voidAndOptional: (); case .strict: preconditionFailure(\"Unstubbed nonthrowing member subscript.get\") } }"
         }
         if isOptionalResult {
-            return "{ switch self._mock4SwiftDefaultPolicy { case .voidAndOptional: nil; case .strict, .void: preconditionFailure(\"Unstubbed nonthrowing member subscript.get\") } }"
+            return "{ switch \(policy) { case .voidAndOptional: nil; case .strict, .void: preconditionFailure(\"Unstubbed nonthrowing member subscript.get\") } }"
         }
         return nil
     }
@@ -328,13 +329,16 @@ struct SubscriptMember {
         let generics = genericClause
         let whereClause = declaration.genericWhereClause.map { rewriteType($0.trimmedDescription, replacements: replacements, mockType: mockType) } ?? ""
         let fallback = defaultFallback.map { ", unstubbed: \($0)" } ?? ""
+        let defaultPolicySnapshot = isAsync && defaultFallback != nil
+            ? "let _mock4SwiftDefaultPolicy = self._mock4SwiftDefaultPolicy\n            "
+            : ""
         let call = "try \(isAsync ? "await " : "")\(witnessChannelReference).\(isAsync ? "invokeAsync" : "invoke")(\(invocationArguments)\(fallback))"
         let getterBody = if let typedError {
             "\(witnessRegistryResolution)do { return \(call) }\n            catch let error as \(typedError) { throw error }\n            catch { preconditionFailure(\"Invalid or unstubbed typed-throws member subscript.get: \\(error)\") }"
         } else if isThrowing {
             "\(witnessRegistryResolution)return \(call)"
         } else {
-            "\(witnessRegistryResolution)do { return \(call) }\n            catch { preconditionFailure(\"Unstubbed nonthrowing member subscript.get: \\(error)\") }"
+            "\(witnessRegistryResolution)\(defaultPolicySnapshot)do { return \(call) }\n            catch { preconditionFailure(\"Unstubbed nonthrowing member subscript.get: \\(error)\") }"
         }
         let getter = "\(getterHeader) {\n            \(getterBody)\n        }"
         let setterMember = Self(
