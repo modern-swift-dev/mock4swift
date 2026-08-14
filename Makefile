@@ -27,13 +27,13 @@ test-linux:
 test-macos:
 	set -o pipefail && \
 	xcodebuild test \
-		-scheme mock-4-swift-Package \
+		-scheme Mocksmith-Package \
 		-destination platform="macOS" | mint run --no-install cpisciotta/xcbeautify -q
 
 test-ios:
 	set -o pipefail && \
 	xcodebuild test \
-		-scheme mock-4-swift-Package \
+		-scheme Mocksmith-Package \
 		-destination platform="iOS Simulator,name=iPhone 17 Pro,OS=26.5" | mint run --no-install cpisciotta/xcbeautify -q
 
 test-swift:
@@ -45,13 +45,13 @@ test: test-swift
 test-tvos:
 	set -o pipefail && \
 	xcodebuild test \
-		-scheme mock-4-swift-Package \
+		-scheme Mocksmith-Package \
 		-destination platform="tvOS Simulator,name=Apple TV 4K (3rd generation),OS=26.5" | mint run --no-install cpisciotta/xcbeautify -q
 
 test-watchos:
 	set -o pipefail && \
 	xcodebuild test \
-		-scheme mock-4-swift-Package \
+		-scheme Mocksmith-Package \
 		-destination platform="watchOS Simulator,name=Apple Watch Series 11 (46mm),OS=26.5" | mint run --no-install cpisciotta/xcbeautify -q
 
 test-all: test-swift test-macos test-ios test-tvos test-watchos test-linux

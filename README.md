@@ -1,21 +1,21 @@
-# Mock4Swift
+# Mocksmith
 
-`Mock4Swift` creates strict protocol mocks at compile time with Swift 6.3 macros. It takes inspiration from [SwiftyMocky](https://github.com/MakeAWishFoundation/SwiftyMocky), without Sourcery or checked-in generated source files.
+`Mocksmith` creates strict protocol mocks at compile time with Swift 6.3 macros. It takes inspiration from [SwiftyMocky](https://github.com/MakeAWishFoundation/SwiftyMocky), without Sourcery or checked-in generated source files.
 
 ## Installation
 
-Add the package to a Swift 6.3 project, then add `Mock4Swift`, exactly one runner adapter, and the build plugin. Attach the plugin to every target that declares an inherited `@Mockable` protocol:
+Add the package to a Swift 6.3 project, then add `Mocksmith`, exactly one runner adapter, and the build plugin. Attach the plugin to every target that declares an inherited `@Mockable` protocol:
 
 ```swift
 .testTarget(
     name: "AppTests",
     dependencies: [
-        .product(name: "Mock4Swift", package: "mock-4-swift"),
-        .product(name: "Mock4SwiftTesting", package: "mock-4-swift"),
-        // or: .product(name: "Mock4SwiftXCTest", package: "mock-4-swift")
+        .product(name: "Mocksmith", package: "Mocksmith"),
+        .product(name: "MocksmithTesting", package: "Mocksmith"),
+        // or: .product(name: "MocksmithXCTest", package: "Mocksmith")
     ],
     plugins: [
-        .plugin(name: "Mock4SwiftBuildPlugin", package: "mock-4-swift"),
+        .plugin(name: "MocksmithBuildPlugin", package: "Mocksmith"),
     ]
 )
 ```
@@ -30,8 +30,8 @@ For progressive, runnable examples covering basic through advanced mocking, see 
 ## Basic usage
 
 ```swift
-import Mock4Swift
-import Mock4SwiftTesting
+import Mocksmith
+import MocksmithTesting
 
 @Mockable
 protocol WeatherService {
@@ -178,10 +178,10 @@ Property state supports synchronous, async, throwing, instance, and static gette
 
 ## Combine publishers
 
-Apple clients can add the optional `Mock4SwiftCombine` product to replace `CurrentValueSubject` setup for requirements returning `AnyPublisher`:
+Apple clients can add the optional `MocksmithCombine` product to replace `CurrentValueSubject` setup for requirements returning `AnyPublisher`:
 
 ```swift
-import Mock4SwiftCombine
+import MocksmithCombine
 
 let snapshots = Given(repository).snapshots.willPublish(current: initial)
 snapshots.send(next)
@@ -306,10 +306,10 @@ Use `.void` for setup mocks whose unstubbed nonthrowing `Void` requirements shou
 
 ## Test runners
 
-`Mock4SwiftTesting.Verify` records a failed `VerificationResult` with `Testing.Issue.record` and the caller's `SourceLocation`. `Mock4SwiftXCTest.Verify` uses `XCTFail(_:file:line:)`. Their call-history and pending-call assertion extensions use the same reporting mechanism. If both adapters are imported, qualify `Verify` with the module name and keep identically named assertion extensions in files that import only one runner adapter.
+`MocksmithTesting.Verify` records a failed `VerificationResult` with `Testing.Issue.record` and the caller's `SourceLocation`. `MocksmithXCTest.Verify` uses `XCTFail(_:file:line:)`. Their call-history and pending-call assertion extensions use the same reporting mechanism. If both adapters are imported, qualify `Verify` with the module name and keep identically named assertion extensions in files that import only one runner adapter.
 
 ## Swift 6.3 limits
 
-Distributed actors are unsupported. Protocol requirements cannot use opaque `some` results in Swift; `some` input parameters are supported. Swift 6.3 rejects noncopyable associated types, so Mock4Swift diagnoses them precisely. Parameter packs currently require one pack parameter, and named noncopyable types require `@MockNoncopyable`.
+Distributed actors are unsupported. Protocol requirements cannot use opaque `some` results in Swift; `some` input parameters are supported. Swift 6.3 rejects noncopyable associated types, so Mocksmith diagnoses them precisely. Parameter packs currently require one pack parameter, and named noncopyable types require `@MockNoncopyable`.
 
 Inherited protocol resolution requires ordinary, unconditional top-level Swift source reachable through the target's SwiftPM dependency graph. Binary XCFrameworks, SDK and precompiled modules, conditional declarations, macro-synthesized declarations, and dependency plugin-generated source are unsupported. Generic requirements with several noncopyable arguments require a named wrapper parameter. Transient requirements with nonescaping callbacks, nonescaping initializer closures, and settable parameter-pack subscripts remain excluded with targeted diagnostics.

@@ -1,5 +1,5 @@
-import Mock4Swift
-import Mock4SwiftTesting
+import Mocksmith
+import MocksmithTesting
 import Testing
 
 private struct NoncopyableSampleToken: ~Copyable {
@@ -28,8 +28,8 @@ private struct NoncopyableSampleToken: ~Copyable {
     // willProduce creates a fresh value at call time; producer sequences consume
     // in order and repeat the final producer.
     Given(service).inspect(.matching { $0.rawValue == 3 }).willProduce({ 9 }, { 10 })
-    Given(service).make().willProduce({ NoncopyableSampleToken(rawValue: 4) })
-    Given(service).token.willProduce({ NoncopyableSampleToken(rawValue: 6) })
+    Given(service).make().willProduce { NoncopyableSampleToken(rawValue: 4) }
+    Given(service).token.willProduce { NoncopyableSampleToken(rawValue: 6) }
 
     // Perform borrows the live argument synchronously. The transient channel
     // never retains it after the call.

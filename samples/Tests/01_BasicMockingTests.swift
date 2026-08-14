@@ -1,5 +1,5 @@
-import Mock4Swift
-import Mock4SwiftTesting
+import Mocksmith
+import MocksmithTesting
 import Testing
 
 /// Attach @Mockable to the protocol used by production code. The macro creates a

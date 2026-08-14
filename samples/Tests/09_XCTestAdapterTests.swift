@@ -1,5 +1,5 @@
-import Mock4Swift
-import Mock4SwiftXCTest
+import Mocksmith
+import MocksmithXCTest
 import XCTest
 
 @Mockable private protocol XCTestGreetingService {
@@ -8,7 +8,7 @@ import XCTest
 
 /// Keep XCTestCase internal because Linux uses generated test discovery and does
 /// not discover private XCTestCase subclasses.
-final class Mock4SwiftXCTestSample: XCTestCase {
+final class MocksmithXCTestSample: XCTestCase {
     func testXCTestUsesTheSameGeneratedDSL() {
         let service = XCTestGreetingServiceMock()
 

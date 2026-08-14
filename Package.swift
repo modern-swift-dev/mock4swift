@@ -4,7 +4,7 @@ import CompilerPluginSupport
 import PackageDescription
 
 let package = Package(
-    name: "mock-4-swift",
+    name: "Mocksmith",
     platforms: [
         .iOS(.v17),
         .macOS(.v13),
@@ -12,11 +12,11 @@ let package = Package(
         .watchOS(.v10)
     ],
     products: [
-        .library(name: "Mock4Swift", targets: ["Mock4Swift"]),
-        .library(name: "Mock4SwiftCombine", targets: ["Mock4SwiftCombine"]),
-        .library(name: "Mock4SwiftTesting", targets: ["Mock4SwiftTesting"]),
-        .library(name: "Mock4SwiftXCTest", targets: ["Mock4SwiftXCTest"]),
-        .plugin(name: "Mock4SwiftBuildPlugin", targets: ["Mock4SwiftBuildPlugin"])
+        .library(name: "Mocksmith", targets: ["Mocksmith"]),
+        .library(name: "MocksmithCombine", targets: ["MocksmithCombine"]),
+        .library(name: "MocksmithTesting", targets: ["MocksmithTesting"]),
+        .library(name: "MocksmithXCTest", targets: ["MocksmithXCTest"]),
+        .plugin(name: "MocksmithBuildPlugin", targets: ["MocksmithBuildPlugin"])
     ],
     dependencies: [
         .package(path: "Tests/Fixtures/external-protocols"),
@@ -27,7 +27,7 @@ let package = Package(
     ],
     targets: [
         .macro(
-            name: "Mock4SwiftMacros",
+            name: "MocksmithMacros",
             dependencies: [
                 .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
@@ -35,55 +35,55 @@ let package = Package(
                 .product(name: "SwiftSyntaxMacros", package: "swift-syntax")
             ]
         ),
-        .target(name: "Mock4Swift", dependencies: ["Mock4SwiftMacros"]),
-        .target(name: "Mock4SwiftCombine", dependencies: ["Mock4Swift"]),
-        .target(name: "Mock4SwiftTesting", dependencies: ["Mock4Swift"]),
-        .target(name: "Mock4SwiftXCTest", dependencies: ["Mock4Swift"]),
+        .target(name: "Mocksmith", dependencies: ["MocksmithMacros"]),
+        .target(name: "MocksmithCombine", dependencies: ["Mocksmith"]),
+        .target(name: "MocksmithTesting", dependencies: ["Mocksmith"]),
+        .target(name: "MocksmithXCTest", dependencies: ["Mocksmith"]),
         .target(
-            name: "Mock4SwiftInheritanceFixture",
-            dependencies: ["Mock4Swift"],
-            plugins: ["Mock4SwiftBuildPlugin"]
+            name: "MocksmithInheritanceFixture",
+            dependencies: ["Mocksmith"],
+            plugins: ["MocksmithBuildPlugin"]
         ),
         .executableTarget(
-            name: "Mock4SwiftGenerator",
+            name: "MocksmithGenerator",
             dependencies: [
                 .product(name: "SwiftParser", package: "swift-syntax"),
                 .product(name: "SwiftSyntax", package: "swift-syntax")
             ]
         ),
         .plugin(
-            name: "Mock4SwiftBuildPlugin",
+            name: "MocksmithBuildPlugin",
             capability: .buildTool(),
-            dependencies: ["Mock4SwiftGenerator"]
+            dependencies: ["MocksmithGenerator"]
         ),
-        .testTarget(name: "Mock4SwiftRuntimeTests", dependencies: ["Mock4Swift"]),
+        .testTarget(name: "MocksmithRuntimeTests", dependencies: ["Mocksmith"]),
         .testTarget(
-            name: "Mock4SwiftCombineTests",
-            dependencies: ["Mock4Swift", "Mock4SwiftCombine"]
+            name: "MocksmithCombineTests",
+            dependencies: ["Mocksmith", "MocksmithCombine"]
         ),
         .testTarget(
-            name: "Mock4SwiftMacrosTests",
+            name: "MocksmithMacrosTests",
             dependencies: [
-                "Mock4SwiftMacros",
+                "MocksmithMacros",
                 .product(name: "SwiftSyntaxMacrosTestSupport", package: "swift-syntax")
             ]
         ),
         .testTarget(
-            name: "Mock4SwiftIntegrationTests",
+            name: "MocksmithIntegrationTests",
             dependencies: [
-                "Mock4Swift",
-                "Mock4SwiftTesting",
-                "Mock4SwiftXCTest",
-                "Mock4SwiftInheritanceFixture",
+                "Mocksmith",
+                "MocksmithTesting",
+                "MocksmithXCTest",
+                "MocksmithInheritanceFixture",
                 .product(name: "ExternalProtocols", package: "external-protocols")
             ],
-            plugins: ["Mock4SwiftBuildPlugin"]
+            plugins: ["MocksmithBuildPlugin"]
         ),
         .testTarget(
-            name: "Mock4SwiftSamples",
-            dependencies: ["Mock4Swift", "Mock4SwiftTesting", "Mock4SwiftXCTest"],
+            name: "MocksmithSamples",
+            dependencies: ["Mocksmith", "MocksmithTesting", "MocksmithXCTest"],
             path: "samples/Tests",
-            plugins: ["Mock4SwiftBuildPlugin"]
+            plugins: ["MocksmithBuildPlugin"]
         )
     ],
     swiftLanguageModes: [.v6]

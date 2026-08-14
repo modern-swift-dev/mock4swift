@@ -23,11 +23,11 @@ jobs:
         run: |
           swift --version
           swift --version | grep -F 'Swift version 6.3'
-      - run: xcodebuild test -scheme mock-4-swift-Package -destination 'platform=macOS'
+      - run: xcodebuild test -scheme Mocksmith-Package -destination 'platform=macOS'
       - name: Build Apple platforms
         run: |
           for platform in iOS tvOS watchOS; do
-            for scheme in Mock4SwiftCombine Mock4SwiftTesting Mock4SwiftXCTest; do
+            for scheme in MocksmithCombine MocksmithTesting MocksmithXCTest; do
               xcodebuild clean build -scheme "$scheme" -destination "generic/platform=$platform"
             done
           done

@@ -1,5 +1,5 @@
-import Mock4Swift
-import Mock4SwiftTesting
+import Mocksmith
+import MocksmithTesting
 import Testing
 
 private enum AsyncSampleFailure: Error, Equatable {

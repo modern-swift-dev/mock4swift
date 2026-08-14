@@ -1,4 +1,4 @@
-# Mock4Swift samples
+# Mocksmith samples
 
 These samples are executable documentation. They compile and run with the package test suite, so the examples stay aligned with the public API.
 
@@ -10,18 +10,18 @@ From the repository root:
 swift test
 ```
 
-The package requires Swift 6.3. Applications normally add `Mock4Swift` and exactly one verification adapter to their test target. Targets declaring inherited `@Mockable` protocols also attach the build plugin:
+The package requires Swift 6.3. Applications normally add `Mocksmith` and exactly one verification adapter to their test target. Targets declaring inherited `@Mockable` protocols also attach the build plugin:
 
 ```swift
 .testTarget(
     name: "AppTests",
     dependencies: [
-        .product(name: "Mock4Swift", package: "mock-4-swift"),
-        .product(name: "Mock4SwiftTesting", package: "mock-4-swift"),
-        // Or use Mock4SwiftXCTest instead of Mock4SwiftTesting.
+        .product(name: "Mocksmith", package: "Mocksmith"),
+        .product(name: "MocksmithTesting", package: "Mocksmith"),
+        // Or use MocksmithXCTest instead of MocksmithTesting.
     ],
     plugins: [
-        .plugin(name: "Mock4SwiftBuildPlugin", package: "mock-4-swift"),
+        .plugin(name: "MocksmithBuildPlugin", package: "Mocksmith"),
     ]
 )
 ```
@@ -36,7 +36,7 @@ Every sample follows the same three steps:
 
 `Perform` adds side effects, such as invoking a callback or recording a value. `resetMock` selectively clears invocations, stubs, or actions.
 
-Mocks are strict. Mock4Swift does not invent defaults for `Void`, optionals, properties, setters, or subscripts. Untyped throwing requirements report `MockError.unstubbed`; unstubbed nonthrowing and incompatible typed-throwing requirements stop with a precondition failure because their signatures cannot return a framework error.
+Mocks are strict. Mocksmith does not invent defaults for `Void`, optionals, properties, setters, or subscripts. Untyped throwing requirements report `MockError.unstubbed`; unstubbed nonthrowing and incompatible typed-throwing requirements stop with a precondition failure because their signatures cannot return a framework error.
 
 ## Learning order
 

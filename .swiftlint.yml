@@ -22,13 +22,11 @@ opt_in_rules:
   - contains_over_filter_is_empty
   - contains_over_filter_count
   - force_unwrapping
-  - empty_count
   - discarded_notification_center_observer
   - weak_delegate
   - direct_return
   - prefer_self_type_over_type_of_self
   - shorthand_operator
-#  - multiline_function_chains
 
 cyclomatic_complexity:
   warning: 20
