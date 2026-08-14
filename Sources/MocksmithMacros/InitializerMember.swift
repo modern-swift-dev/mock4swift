@@ -269,7 +269,7 @@ struct InitializerMember {
                 let label = parameter.name.text.prefix(1).lowercased() + String(parameter.name.text.dropFirst()) + "Type"
                 return "\(label) _: \(parameter.name.text).Type"
             } ?? []
-            let opaqueTypeTokens = declaration.signature.parameterClause.parameters.enumerated().compactMap { position, _ in
+            let opaqueTypeTokens = parameters.indices.compactMap { position in
                 opaqueParameter(at: position).map { "\(parameters[position].local)Type _: \($0.name).Type" }
             }
             let typeTokens = (explicitTypeTokens + opaqueTypeTokens).joined(separator: ", ")
@@ -323,7 +323,7 @@ struct InitializerMember {
                 let label = parameter.name.text.prefix(1).lowercased() + String(parameter.name.text.dropFirst()) + "Type"
                 return "\(label) _: \(parameter.name.text).Type"
             } ?? []
-            let opaqueTypeTokens = declaration.signature.parameterClause.parameters.enumerated().compactMap { position, _ in
+            let opaqueTypeTokens = parameters.indices.compactMap { position in
                 opaqueParameter(at: position).map { "\(parameters[position].local)Type _: \($0.name).Type" }
             }
             let typeTokens = (explicitTypeTokens + opaqueTypeTokens).joined(separator: ", ")
@@ -370,7 +370,7 @@ struct InitializerMember {
     }
 
     var opaqueParameters: [(name: String, constraint: String)] {
-        declaration.signature.parameterClause.parameters.enumerated().compactMap { position, _ in
+        parameters.indices.compactMap { position in
             opaqueParameter(at: position)
         }
     }

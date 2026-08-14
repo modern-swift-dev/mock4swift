@@ -133,7 +133,10 @@ public struct CallHistory<Arguments>: @unchecked Sendable {
                 return .timedOut
             }
             defer { group.cancelAll() }
-            return try await group.next()!
+            guard let result = try await group.next() else {
+                preconditionFailure("Wait task group unexpectedly completed without a result")
+            }
+            return result
         }
     }
 }

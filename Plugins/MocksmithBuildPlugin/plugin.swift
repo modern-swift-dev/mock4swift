@@ -184,6 +184,6 @@ private enum SourceRegion {
             }
         }
 
-        return String(decoding: result, as: UTF8.self)
+        return String(bytes: result, encoding: .utf8) ?? ""
     }
 }

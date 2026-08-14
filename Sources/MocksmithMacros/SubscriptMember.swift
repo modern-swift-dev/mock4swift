@@ -265,7 +265,7 @@ struct SubscriptMember {
         if kind == .get, parameters.count == 1, let parameter = parameters.first, parameter.isPack {
             return "{ arguments in var result = true; for (argument, matcher) in repeat (each arguments, each \(parameter.matcher)) { result = result && matcher.matches(argument) }; return result }"
         }
-        var parts = parameters.enumerated().map { _, parameter in
+        var parts = parameters.map { parameter in
             let argument = argumentsFieldCount == 1 ? "arguments" : "arguments.\(parameter.local)"
             return "\(parameter.matcher).matches(\(argument))"
         }
@@ -526,7 +526,7 @@ struct SubscriptMember {
     }
 
     var opaqueParameters: [(name: String, constraint: String)] {
-        declaration.parameterClause.parameters.enumerated().compactMap { position, _ in
+        parameters.indices.compactMap { position in
             opaqueParameter(in: declaration, at: position)
         }
     }

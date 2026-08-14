@@ -34,6 +34,7 @@ cyclomatic_complexity:
   error: 50
 switch_case_alignment:
     indented_cases: true
+    ignore_one_liners: true
 large_tuple: 5
 function_parameter_count:
     warning: 8

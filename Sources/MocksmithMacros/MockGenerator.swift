@@ -191,7 +191,7 @@ struct MockGenerator {
         let associated = associatedTypes
         let genericParts = associated.map { declaration -> String in
             let inherited = declaration.inheritanceClause?.inheritedTypes.map(\.type.trimmedDescription).joined(separator: " & ")
-            let genericName = replacements[declaration.name.text]!
+            let genericName = declaration.name.text + "Type"
             return genericName + (inherited.map { ": \(rewriteType($0, replacements: replacements, mockType: mockType))" } ?? "")
         }
         let generics = genericParts.isEmpty ? "" : "<\(genericParts.joined(separator: ", "))>"
@@ -199,7 +199,7 @@ struct MockGenerator {
             + [protocolDecl.genericWhereClause?.requirements.trimmedDescription].compactMap(\.self)
         let combinedWhere = whereRequirements.joined(separator: ", ")
         let mockWhere = combinedWhere.isEmpty ? "" : " where " + rewriteType(combinedWhere, replacements: replacements, mockType: mockType)
-        let typealiases = associated.map { "    \(access)typealias \($0.name.text) = \(replacements[$0.name.text]!)" }.joined(separator: "\n")
+        let typealiases = associated.map { "    \(access)typealias \($0.name.text) = \($0.name.text)Type" }.joined(separator: "\n")
         let typealiasSection = typealiases.isEmpty ? "" : typealiases + "\n\n"
         let availability = protocolDecl.attributes.compactMap { element -> String? in
             guard let attribute = element.as(AttributeSyntax.self) else {

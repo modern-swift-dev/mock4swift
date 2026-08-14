@@ -72,8 +72,13 @@ enum GeneratedMember {
     }
 
     var stateFactory: String {
-        switch self { case .function,
-                 .subscriptMember: ""; case let .property(x): x.stateFactory }
+        switch self {
+            case .function,
+                 .subscriptMember:
+                ""
+            case let .property(x):
+                x.stateFactory
+        }
     }
 
     var orderFactory: String {
