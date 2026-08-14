@@ -101,14 +101,25 @@ Retained async methods, getters, and subscripts can defer completion with `willS
 
 ```swift
 let pending = Given(service).fetch(.any).willSuspend()
+let control = pending.control
 let task = Task { try await service.fetch("key") }
 
-try await pending.waitUntilCalled(timeout: .seconds(1))
-pending.resume(returning: "value")
+try await control.waitUntilCalled(timeout: .seconds(1))
+control.resume(returning: "value")
 let value = try await task.value
 ```
 
-Cancellation is ignored by default, leaving the call pending for explicit resumption. Throwing requirements can instead use `willSuspend(cancellation: .fail(with: failure))`. Deferred outcomes compose with `thenReturn`, `thenSucceed`, `thenThrow`, `thenAnswer`, and `thenSuspend`; the final deferred outcome repeats and concurrent calls remain FIFO. Resetting stubs prevents future selection without invalidating calls that are already pending. Transient noncopyable members do not retain values and therefore do not offer suspension controllers.
+`control` is a public `PendingCall<Arguments, Output, Failure>` that can be stored without naming the underscored fluent sequence type. Cancellation is ignored by default, leaving the call pending for explicit resumption. Throwing requirements can instead use `willSuspend(cancellation: .fail(with: failure))`. Deferred outcomes compose with `thenReturn`, `thenSucceed`, `thenThrow`, `thenAnswer`, `thenResolve`, and `thenSuspend`; the final deferred outcome repeats and concurrent calls remain FIFO. Resetting stubs prevents future selection without invalidating calls that are already pending. Transient noncopyable members do not retain values and therefore do not offer suspension controllers.
+
+Throwing retained members can consume `Result` values directly, including suspended calls:
+
+```swift
+Given(service).fetch(.any)
+    .willResolve(.success("cached"))
+    .thenResolve(.failure(.unavailable))
+
+control.resume(with: result)
+```
 
 The runtime channel types now include ephemeral arguments: `MockMember<Arguments, Ephemeral, Output>` and `TransientMockMember<Arguments, Ephemeral, Output>`. Direct runtime users should pass `Void` when no nonescaping callback payload exists.
 
@@ -139,7 +150,45 @@ let city = try calls.onlyArgument
 Verify(weather, 1).temperature(for: .value(city))
 ```
 
-`waitForCount` requires an explicit timeout and throws `MockWaitError.timedOut` if the count is not reached.
+Histories also provide optional `firstArgument`, `lastArgument`, and `argument(at:)` access. `waitForCount` requires an explicit timeout and throws `MockWaitError.timedOut` if the count is not reached.
+
+When importing a runner adapter, waits and required arguments can report directly at the caller:
+
+```swift
+await calls.expectCount(2, timeout: .seconds(1))
+let latest = try calls.requireLastArgument()
+await control.expectCalled(count: 1, timeout: .seconds(1))
+```
+
+## Property state
+
+Generated mocks expose controllers for retained properties. Get-only properties remain test-mutable through their controller, while assignments to get/set mock properties update the same state:
+
+```swift
+let token = MockState(keychain).token(initial: nil)
+token.value = "new-token"
+
+let status = MockState(repository).status(initial: .success(.ready))
+status.fail(with: .unavailable)
+
+let shared = MockState(ServiceMock.self).sharedValue(initial: 1)
+```
+
+Property state supports synchronous, async, throwing, instance, and static getters. Transient noncopyable properties are excluded because their values cannot be retained. Resetting invocations preserves controller values; stub and action resets disconnect the corresponding property behavior.
+
+## Combine publishers
+
+Apple clients can add the optional `Mock4SwiftCombine` product to replace `CurrentValueSubject` setup for requirements returning `AnyPublisher`:
+
+```swift
+import Mock4SwiftCombine
+
+let snapshots = Given(repository).snapshots.willPublish(current: initial)
+snapshots.send(next)
+snapshots.finish()
+```
+
+`PublisherControl` also supports typed failures with `fail(_:)` or `send(completion:)`. The v1 helper intentionally targets synchronous, nonthrowing retained stubs returning `AnyPublisher`.
 
 Strict in-order verification can span instance and static mocks:
 
@@ -253,9 +302,11 @@ On Apple platforms, `@Mockable` supports `@objc` protocols inheriting `NSObjectP
 
 Generated mocks are strict unless constructed with `defaults: .void` or `.voidAndOptional`. Those opt-in policies supply only unstubbed, nonthrowing instance `Void` members and, for `.voidAndOptional`, optional results; properties, setters, and subscripts follow the same rule. Calls still record normally. Value-returning members otherwise need a matching `Given`; `Perform` also satisfies `Void` members because it installs the required `Void` outcome. Throwing and static members always remain strict. Untyped throwing members throw `MockError.unstubbed`. Nonthrowing, `rethrows`, and incompatible typed-throws members stop with a precise precondition failure because they cannot legally throw a framework error. Required initializers are the only unstubbed exception.
 
+Use `.void` for setup mocks whose unstubbed nonthrowing `Void` requirements should be no-ops, and `.voidAndOptional` when unstubbed optional results should additionally return `nil`. Strict remains the default for behavior under test.
+
 ## Test runners
 
-`Mock4SwiftTesting.Verify` records a failed `VerificationResult` with `Testing.Issue.record` and the caller's `SourceLocation`. `Mock4SwiftXCTest.Verify` uses `XCTFail(_:file:line:)`. If both adapters are imported, qualify `Verify` with the module name.
+`Mock4SwiftTesting.Verify` records a failed `VerificationResult` with `Testing.Issue.record` and the caller's `SourceLocation`. `Mock4SwiftXCTest.Verify` uses `XCTFail(_:file:line:)`. Their call-history and pending-call assertion extensions use the same reporting mechanism. If both adapters are imported, qualify `Verify` with the module name and keep identically named assertion extensions in files that import only one runner adapter.
 
 ## Swift 6.3 limits
 

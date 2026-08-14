@@ -34,6 +34,28 @@ private func pendingBuilder(_ member: MockMember<Int, Void, String>) -> PendingB
     #expect(try await second.value == "second")
 }
 
+@Test func pendingControlCanBeStoredWithoutTheFluentSequenceType() async throws {
+    let member = MockMember<Int, Void, String>(name: "fetch(_:)")
+    let control: PendingCall<Int, String, PendingFailure> = pendingBuilder(member).willSuspend().control
+    let task = Task { try await member.invokeAsync(42) }
+
+    try await control.waitUntilCalled(timeout: .seconds(1))
+    #expect(control.callCount == 1)
+    #expect(control.arguments == [42])
+    control.resume(with: .success("stored"))
+    #expect(try await task.value == "stored")
+}
+
+@Test func pendingControlResumesFailuresFromResults() async throws {
+    let member = MockMember<Int, Void, String>(name: "fetch(_:)")
+    let control = pendingBuilder(member).willSuspend().control
+    let task = Task { try await member.invokeAsync(1) }
+
+    try await control.waitUntilCalled(timeout: .seconds(1))
+    control.resume(with: .failure(.configured))
+    await #expect(throws: PendingFailure.configured) { try await task.value }
+}
+
 @Test func waitingUntilCalledAlwaysObservesAResumableInvocation() async throws {
     for iteration in 0 ..< 100 {
         let member = MockMember<Int, Void, Int>(name: "iteration")
@@ -128,4 +150,55 @@ private func pendingBuilder(_ member: MockMember<Int, Void, String>) -> PendingB
     pending.resume()
     try await first.value
     try await member.invokeAsync(())
+}
+
+@Test func asyncThrowingBuildersResolveResultSequences() async throws {
+    let member = MockMember<Int, Void, String>(name: "fetch(_:)")
+    let builder = pendingBuilder(member)
+    builder.willResolve(.success("first"), .failure(.configured))
+        .thenResolve(.success("last"))
+
+    #expect(try await member.invokeAsync(1) == "first")
+    await #expect(throws: PendingFailure.configured) { try await member.invokeAsync(2) }
+    #expect(try await member.invokeAsync(3) == "last")
+    #expect(try await member.invokeAsync(4) == "last")
+}
+
+@Test func throwingVoidBuildersResolveResultSequences() throws {
+    let member = MockMember<Void, Void, Void>(name: "refresh")
+    let builder = _Mock4SwiftThrowingVoidStub<Void, Void, PendingFailure, () throws -> Void>(
+        apply: { member.addStub(matching: { _ in true }, outcomes: $0) },
+        answer: { answer in .answering { _, _ in try answer() } }
+    )
+    builder.willResolve(.success(()), .failure(.configured))
+        .thenResolve(.success(()))
+
+    try member.invoke(())
+    #expect(throws: PendingFailure.configured) { try member.invoke(()) }
+    try member.invoke(())
+}
+
+@Test func throwingReturnBuildersResolveResultSequences() throws {
+    let member = MockMember<Int, Void, Int>(name: "load(_:)")
+    let builder = _Mock4SwiftThrowingReturnStub<Int, Void, Int, PendingFailure, (Int) throws -> Int>(
+        apply: { member.addStub(matching: { _ in true }, outcomes: $0) },
+        answer: { answer in .answering { arguments, _ in try answer(arguments) } }
+    )
+    builder.willResolve(.success(1)).thenResolve(.failure(.configured), .success(3))
+
+    #expect(try member.invoke(0) == 1)
+    #expect(throws: PendingFailure.configured) { try member.invoke(0) }
+    #expect(try member.invoke(0) == 3)
+}
+
+@Test func pendingSequencesAppendResolvedResults() async throws {
+    let member = MockMember<Int, Void, String>(name: "fetch(_:)")
+    let pending = pendingBuilder(member).willSuspend().thenResolve(.failure(.configured), .success("resolved"))
+    let task = Task { try await member.invokeAsync(1) }
+
+    try await pending.waitUntilCalled(timeout: .seconds(1))
+    pending.resume(returning: "suspended")
+    #expect(try await task.value == "suspended")
+    await #expect(throws: PendingFailure.configured) { try await member.invokeAsync(2) }
+    #expect(try await member.invokeAsync(3) == "resolved")
 }

@@ -27,7 +27,7 @@ jobs:
       - name: Build Apple platforms
         run: |
           for platform in iOS tvOS watchOS; do
-            for scheme in Mock4SwiftTesting Mock4SwiftXCTest; do
+            for scheme in Mock4SwiftCombine Mock4SwiftTesting Mock4SwiftXCTest; do
               xcodebuild clean build -scheme "$scheme" -destination "generic/platform=$platform"
             done
           done

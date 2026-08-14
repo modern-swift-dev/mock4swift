@@ -8,6 +8,7 @@ public enum MockWaitError: Error, Sendable, Equatable {
 /// Errors thrown while reading a call history with an invalid cardinality.
 public enum CallHistoryError: Error, Sendable, Equatable {
     case expectedExactlyOne(member: String, actualCount: Int)
+    case expectedAtLeastOne(member: String)
 }
 
 /// A typed, observational view of invocations recorded by one mock member.
@@ -20,6 +21,10 @@ public struct CallHistory<Arguments>: @unchecked Sendable {
     private let member: String
     private let snapshot: () -> (generation: UInt64, arguments: [Arguments])
     private let waitForChange: @Sendable (UInt64) async throws -> Void
+
+    package var _mock4SwiftMemberName: String {
+        member
+    }
 
     init(
         member: String,
@@ -39,6 +44,25 @@ public struct CallHistory<Arguments>: @unchecked Sendable {
     /// The number of matching invocations.
     public var count: Int {
         arguments.count
+    }
+
+    /// The first matching argument, if a call was recorded.
+    public var firstArgument: Arguments? {
+        arguments.first
+    }
+
+    /// The last matching argument, if a call was recorded.
+    public var lastArgument: Arguments? {
+        arguments.last
+    }
+
+    /// The matching argument at `index`, or `nil` when the index is out of bounds.
+    public func argument(at index: Int) -> Arguments? {
+        let arguments = arguments
+        guard arguments.indices.contains(index) else {
+            return nil
+        }
+        return arguments[index]
     }
 
     /// The sole matching argument, or an error unless exactly one call was recorded.

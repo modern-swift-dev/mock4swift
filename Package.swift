@@ -13,6 +13,7 @@ let package = Package(
     ],
     products: [
         .library(name: "Mock4Swift", targets: ["Mock4Swift"]),
+        .library(name: "Mock4SwiftCombine", targets: ["Mock4SwiftCombine"]),
         .library(name: "Mock4SwiftTesting", targets: ["Mock4SwiftTesting"]),
         .library(name: "Mock4SwiftXCTest", targets: ["Mock4SwiftXCTest"]),
         .plugin(name: "Mock4SwiftBuildPlugin", targets: ["Mock4SwiftBuildPlugin"])
@@ -35,6 +36,7 @@ let package = Package(
             ]
         ),
         .target(name: "Mock4Swift", dependencies: ["Mock4SwiftMacros"]),
+        .target(name: "Mock4SwiftCombine", dependencies: ["Mock4Swift"]),
         .target(name: "Mock4SwiftTesting", dependencies: ["Mock4Swift"]),
         .target(name: "Mock4SwiftXCTest", dependencies: ["Mock4Swift"]),
         .target(
@@ -55,6 +57,10 @@ let package = Package(
             dependencies: ["Mock4SwiftGenerator"]
         ),
         .testTarget(name: "Mock4SwiftRuntimeTests", dependencies: ["Mock4Swift"]),
+        .testTarget(
+            name: "Mock4SwiftCombineTests",
+            dependencies: ["Mock4Swift", "Mock4SwiftCombine"]
+        ),
         .testTarget(
             name: "Mock4SwiftMacrosTests",
             dependencies: [

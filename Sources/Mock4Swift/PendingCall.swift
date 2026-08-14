@@ -71,6 +71,17 @@ public final class PendingCall<Arguments, Output, Failure: Error>: @unchecked Se
         continuation.resume(throwing: failure)
     }
 
+    /// Resumes the oldest pending invocation with the supplied result.
+    public func resume(with result: sending Result<Output, Failure>) {
+        let continuation = removeOldestPending()
+        switch result {
+            case let .success(output):
+                continuation.resume(returning: output)
+            case let .failure(failure):
+                continuation.resume(throwing: failure)
+        }
+    }
+
     func suspend(_ arguments: Arguments, cancellationFailure: Failure?) async throws -> Output {
         let invocation = lock.withLock { () -> Invocation in
             nextInvocationID &+= 1

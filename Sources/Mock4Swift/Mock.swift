@@ -23,3 +23,9 @@ public protocol _Mock4SwiftCallInspectable: Mock {
     associatedtype Calls
     func _mock4SwiftCalls() -> Calls
 }
+
+/// Opt-in support for generated property-state selectors.
+public protocol _Mock4SwiftStateControllable: Mock {
+    associatedtype MockState
+    func _mock4SwiftState() -> MockState
+}

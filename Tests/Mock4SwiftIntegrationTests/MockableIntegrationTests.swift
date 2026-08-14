@@ -33,6 +33,10 @@ private final class UncheckedSendableBox<Value>: @unchecked Sendable {
     subscript(_ key: String) -> Int { get set }
 }
 
+@Mockable private protocol StatefulStaticService {
+    static var value: Int { get set }
+}
+
 @Mockable private protocol OrderedService {
     init(seed: Int)
     static func make(_ value: Int) -> String
@@ -62,6 +66,7 @@ private enum LoadFailure: Error, Equatable {
     func refresh() throws(LoadFailure)
     func refreshAsync() async throws(LoadFailure)
     var label: String { get throws(LoadFailure) }
+    var message: String { get throws }
 }
 
 @Mockable private protocol GenericService {
@@ -81,6 +86,11 @@ private enum LoadFailure: Error, Equatable {
 @Mockable private protocol MainActorService {
     static var enabled: Bool { get }
     func title() -> String
+}
+
+@MainActor
+@Mockable private protocol StatefulMainActorService {
+    static var enabled: Bool { get }
 }
 
 @Mockable private protocol SelfService: AnyObject {
@@ -184,6 +194,69 @@ private struct Identifier: IdentifiedValue, Equatable {
     @objc optional var title: String? { get }
 }
 #endif
+
+@Test private func generatedPropertyStateControlsValuesSettersAndPrecedence() {
+    let mock = WeatherServiceMock()
+    let unit = MockState(mock).unit(initial: "metric")
+
+    #expect(mock.unit == "metric")
+    unit.value = "custom"
+    #expect(mock.unit == "custom")
+    mock.unit = "imperial"
+    #expect(unit.value == "imperial")
+    #expect(Calls(mock).unit(set: .any).arguments == ["imperial"])
+
+    resetMock(mock, scopes: [.invocations])
+    #expect(unit.value == "imperial")
+    #expect(Calls(mock).unit(set: .any).isEmpty)
+
+    Given(mock).unit.willReturn("stubbed")
+    #expect(mock.unit == "stubbed")
+    let replacement = MockState(mock).unit(initial: "replacement")
+    #expect(mock.unit == "replacement")
+    #expect(replacement.value == "replacement")
+}
+
+@Test private func generatedPropertyStateSupportsTypedAndAsyncThrowingGetters() async throws {
+    let thrower = TypedThrowerMock()
+    let label = MockState(thrower).label(initial: .failure(.unavailable))
+    #expect(throws: LoadFailure.unavailable) { try thrower.label }
+    label.succeed(with: "ready")
+    #expect(try thrower.label == "ready")
+
+    let message = MockState(thrower).message(
+        initial: Result<String, any Error>.failure(LoadFailure.unavailable)
+    )
+    #expect(throws: LoadFailure.unavailable) { try thrower.message }
+    message.succeed(with: "available")
+    #expect(try thrower.message == "available")
+
+    let accessors = EffectfulAccessorServiceMock()
+    let current = MockState(accessors).current(initial: .success(7))
+    #expect(try await accessors.current == 7)
+    current.fail(with: .unavailable)
+    await #expect(throws: LoadFailure.unavailable) { try await accessors.current }
+}
+
+@Test private func generatedPropertyStateSupportsStaticProperties() {
+    resetMock(StatefulStaticServiceMock.self)
+    let shared = MockState(StatefulStaticServiceMock.self).value(initial: 10)
+
+    #expect(StatefulStaticServiceMock.value == 10)
+    StatefulStaticServiceMock.value = 11
+    #expect(shared.value == 11)
+    shared.value = 12
+    #expect(StatefulStaticServiceMock.value == 12)
+
+    resetMock(StatefulStaticServiceMock.self)
+}
+
+@Test @MainActor private func generatedPropertyStatePreservesGlobalActorIsolation() {
+    let enabled = MockState(StatefulMainActorServiceMock.self).enabled(initial: false)
+    #expect(!StatefulMainActorServiceMock.enabled)
+    enabled.value = true
+    #expect(StatefulMainActorServiceMock.enabled)
+}
 
 @Test private func generatedMockSupportsMethodsPropertiesAndTypedDSL() async throws {
     let mock = WeatherServiceMock()

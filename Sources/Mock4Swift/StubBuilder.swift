@@ -1,3 +1,12 @@
+private extension StubOutcome {
+    init(result: Result<Output, some Error>) {
+        switch result {
+            case let .success(output): self = .returning(output)
+            case let .failure(failure): self = .throwing(failure)
+        }
+    }
+}
+
 /// Builder used only by retained async requirements.
 public struct _Mock4SwiftAsyncReturnStub<Arguments, Ephemeral, Output, Answer> {
     private let apply: ([StubOutcome<Arguments, Ephemeral, Output>]) -> _Mock4SwiftStubRegistration<Arguments, Ephemeral, Output>
@@ -100,6 +109,11 @@ public struct _Mock4SwiftPendingSequence<Arguments, Ephemeral, Output, Answer>: 
         pending.arguments
     }
 
+    /// The type-safe controller for invocations suspended by this sequence.
+    public var control: PendingCall<Arguments, Output, Never> {
+        pending
+    }
+
     public func waitUntilCalled(count: Int = 1, timeout: Duration) async throws {
         try await pending.waitUntilCalled(count: count, timeout: timeout)
     }
@@ -163,6 +177,12 @@ public struct _Mock4SwiftAsyncThrowingReturnStub<Arguments, Ephemeral, Output, F
         makeSequence(apply(([error] + errors).map(StubOutcome.throwing)))
     }
 
+    @discardableResult public func willResolve(
+        _ result: Result<Output, Failure>, _ results: Result<Output, Failure>...
+    ) -> _Mock4SwiftAsyncThrowingReturnSequence<Arguments, Ephemeral, Output, Failure, Answer> {
+        makeSequence(apply(([result] + results).map(StubOutcome.init(result:))))
+    }
+
     @discardableResult public func willAnswer(_ answer: Answer) -> _Mock4SwiftAsyncThrowingReturnSequence<Arguments, Ephemeral, Output, Failure, Answer> {
         makeSequence(apply([answerOutcome(answer)]))
     }
@@ -217,6 +237,13 @@ public struct _Mock4SwiftAsyncThrowingReturnSequence<Arguments, Ephemeral, Outpu
         return self
     }
 
+    @discardableResult public func thenResolve(
+        _ result: Result<Output, Failure>, _ results: Result<Output, Failure>...
+    ) -> Self {
+        registration.append(([result] + results).map(StubOutcome.init(result:)))
+        return self
+    }
+
     @discardableResult public func thenAnswer(_ answer: Answer) -> Self {
         registration.append([answerOutcome(answer)])
         return self
@@ -258,6 +285,11 @@ public struct _Mock4SwiftThrowingPendingSequence<Arguments, Ephemeral, Output, F
         pending.arguments
     }
 
+    /// The type-safe controller for invocations suspended by this sequence.
+    public var control: PendingCall<Arguments, Output, Failure> {
+        pending
+    }
+
     public func waitUntilCalled(count: Int = 1, timeout: Duration) async throws {
         try await pending.waitUntilCalled(count: count, timeout: timeout)
     }
@@ -274,6 +306,10 @@ public struct _Mock4SwiftThrowingPendingSequence<Arguments, Ephemeral, Output, F
         pending.resume(throwing: failure)
     }
 
+    public func resume(with result: sending Result<Output, Failure>) {
+        pending.resume(with: result)
+    }
+
     @discardableResult public func thenReturn(_ values: Output...) -> Self {
         registration.append(values.map(StubOutcome.returning))
         return self
@@ -286,6 +322,13 @@ public struct _Mock4SwiftThrowingPendingSequence<Arguments, Ephemeral, Output, F
 
     @discardableResult public func thenThrow(_ error: Failure, _ errors: Failure...) -> Self {
         registration.append(([error] + errors).map(StubOutcome.throwing))
+        return self
+    }
+
+    @discardableResult public func thenResolve(
+        _ result: Result<Output, Failure>, _ results: Result<Output, Failure>...
+    ) -> Self {
+        registration.append(([result] + results).map(StubOutcome.init(result:)))
         return self
     }
 
@@ -385,6 +428,12 @@ public struct _Mock4SwiftThrowingReturnStub<
         .init(registration: apply(errors.map(StubOutcome.throwing)), answer: answerOutcome)
     }
 
+    @discardableResult public func willResolve(
+        _ result: Result<Output, Failure>, _ results: Result<Output, Failure>...
+    ) -> _Mock4SwiftThrowingReturnSequence<Arguments, Ephemeral, Output, Failure, Answer> {
+        .init(registration: apply(([result] + results).map(StubOutcome.init(result:))), answer: answerOutcome)
+    }
+
     @discardableResult public func willAnswer(
         _ answer: Answer
     ) -> _Mock4SwiftThrowingReturnSequence<Arguments, Ephemeral, Output, Failure, Answer> {
@@ -418,6 +467,13 @@ public struct _Mock4SwiftThrowingReturnSequence<
 
     @discardableResult public func thenThrow(_ errors: Failure...) -> Self {
         registration.append(errors.map(StubOutcome.throwing))
+        return self
+    }
+
+    @discardableResult public func thenResolve(
+        _ result: Result<Output, Failure>, _ results: Result<Output, Failure>...
+    ) -> Self {
+        registration.append(([result] + results).map(StubOutcome.init(result:)))
         return self
     }
 
@@ -588,6 +644,12 @@ public struct _Mock4SwiftThrowingVoidStub<
         .init(registration: apply(errors.map(StubOutcome.throwing)), answer: answerOutcome)
     }
 
+    @discardableResult public func willResolve(
+        _ result: Result<Void, Failure>, _ results: Result<Void, Failure>...
+    ) -> _Mock4SwiftThrowingVoidSequence<Arguments, Ephemeral, Failure, Answer> {
+        .init(registration: apply(([result] + results).map(StubOutcome.init(result:))), answer: answerOutcome)
+    }
+
     @discardableResult public func willAnswer(
         _ answer: Answer
     ) -> _Mock4SwiftThrowingVoidSequence<Arguments, Ephemeral, Failure, Answer> {
@@ -619,6 +681,13 @@ public struct _Mock4SwiftThrowingVoidSequence<
 
     @discardableResult public func thenThrow(_ errors: Failure...) -> Self {
         registration.append(errors.map(StubOutcome.throwing))
+        return self
+    }
+
+    @discardableResult public func thenResolve(
+        _ result: Result<Void, Failure>, _ results: Result<Void, Failure>...
+    ) -> Self {
+        registration.append(([result] + results).map(StubOutcome.init(result:)))
         return self
     }
 

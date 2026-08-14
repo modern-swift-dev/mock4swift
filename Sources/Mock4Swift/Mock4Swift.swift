@@ -31,6 +31,14 @@ public func Calls<M: _Mock4SwiftStaticCallInspectable>(_ type: M.Type) -> M.Stat
     type._mock4SwiftStaticCalls()
 }
 
+public func MockState<M: _Mock4SwiftStateControllable>(_ mock: M) -> M.MockState {
+    mock._mock4SwiftState()
+}
+
+public func MockState<M: _Mock4SwiftStaticStateControllable>(_ type: M.Type) -> M.StaticMockState {
+    type._mock4SwiftStaticState()
+}
+
 public func Perform<M: Mock>(_ mock: M) -> M.Perform {
     mock.perform()
 }

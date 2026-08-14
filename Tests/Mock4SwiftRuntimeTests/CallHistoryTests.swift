@@ -27,6 +27,24 @@ import Testing
     }
 }
 
+@Test func callHistoryExposesOptionalPositionalArguments() {
+    let member = MockMember<Int, Void, Void>(name: "save")
+    let history = member.callHistory { _ in true }
+
+    #expect(history.firstArgument == nil)
+    #expect(history.lastArgument == nil)
+    #expect(history.argument(at: -1) == nil)
+    #expect(history.argument(at: 0) == nil)
+
+    member.record(1)
+    member.record(2)
+    #expect(history.firstArgument == 1)
+    #expect(history.lastArgument == 2)
+    #expect(history.argument(at: 0) == 1)
+    #expect(history.argument(at: 1) == 2)
+    #expect(history.argument(at: 2) == nil)
+}
+
 @Test func callHistoryWaitsForRecordedCalls() async throws {
     let member = MockMember<Int, Void, Void>(name: "save")
     let history = member.callHistory { $0 > 0 }

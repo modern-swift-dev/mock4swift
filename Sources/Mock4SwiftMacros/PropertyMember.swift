@@ -342,6 +342,72 @@ struct PropertyMember {
         }
     }
 
+    var stateFactory: String {
+        guard kind == .get, !isTransient else {
+            return ""
+        }
+
+        let failure = isThrowing ? (typedError ?? "any Error") : "Never"
+        let initialType = isThrowing ? "Result<\(type), \(failure)>" : type
+        let controllerType = "MockPropertyState<\(type), \(failure)>"
+        let valueExpression = isThrowing ? "try state.get()" : "state.value"
+        let outcome = isAsync
+            ? ".asyncAnswer { _ in \(valueExpression) }"
+            : ".answer { _, _ in \(valueExpression) }"
+        let controller = "let state = \(controllerType)(initial: initial)"
+
+        let getterRegistration = """
+        do {
+                \(registryResolution)\(channelReference).addStub(
+                    matching: { _ in true },
+                    specificity: 0,
+                    outcomes: [\(outcome)]
+                )
+            }
+        """
+
+        let setterRegistration: String
+        if isReadWrite {
+            let setterName = "_mock_\(name)_set_\(index)"
+            let setterType = "MockMember<\(type), Void, Void>"
+            let resolution: String
+            let reference: String
+            if usesRegistry {
+                if isStatic {
+                    resolution = "let member: \(setterType) = StaticMockRegistry.shared.member(owner: mock, key: \"\(setterName)\", types: []) { \(setterType)(name: \"\(name).set\") }\n                "
+                } else {
+                    resolution = "let member: \(setterType) = mock._genericMockRegistry.member(key: \"\(setterName)\", types: []) { \(setterType)(name: \"\(name).set\") }\n                "
+                }
+                reference = "member"
+            } else {
+                resolution = ""
+                reference = "mock.\(setterName)"
+            }
+            setterRegistration = """
+
+            do {
+                \(resolution)\(reference).addAction(
+                    matching: { _ in true },
+                    specificity: 0,
+                    outcomes: [.returnValue(())],
+                    action: { state.succeed(with: $0) }
+                )
+            }
+            """
+        } else {
+            setterRegistration = ""
+        }
+
+        return declaration(
+            "func \(name)(initial: \(initialType)) -> \(controllerType)",
+            body: """
+            \(controller)
+            \(getterRegistration)\(setterRegistration)
+            return state
+            """
+        )
+    }
+
     var orderFactory: String {
         let signature: String
         let matches: String

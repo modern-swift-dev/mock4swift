@@ -37,7 +37,7 @@ final class MockableMacroTests: XCTestCase {
             expandedSource: """
             protocol Empty {}
 
-            final class EmptyMock: Empty, Mock, InOrderMock, _Mock4SwiftExhaustiveMock, _Mock4SwiftCallInspectable {
+            final class EmptyMock: Empty, Mock, InOrderMock, _Mock4SwiftExhaustiveMock, _Mock4SwiftCallInspectable, _Mock4SwiftStateControllable {
                 private let _mock4SwiftDefaultPolicy: MockDefaultPolicy
 
                 fileprivate var _mock4SwiftOrderedInvocations: [_Mock4SwiftInvocation] {
@@ -75,6 +75,10 @@ final class MockableMacroTests: XCTestCase {
                     fileprivate let mock: EmptyMock
                 }
 
+                struct MockState {
+                    fileprivate let mock: EmptyMock
+                }
+
                 struct OrderExpect {
                     fileprivate let mock: EmptyMock
                     fileprivate let order: InOrder
@@ -89,6 +93,9 @@ final class MockableMacroTests: XCTestCase {
                 }
                 func _mock4SwiftCalls() -> Calls {
                     Calls(mock: self)
+                }
+                func _mock4SwiftState() -> MockState {
+                    MockState(mock: self)
                 }
                 func perform() -> Perform {
                     Perform(mock: self)
@@ -332,7 +339,7 @@ final class MockableMacroTests: XCTestCase {
 
         XCTAssertTrue(source
             .contains(
-                "public final class ServiceMock: Service, Mock, InOrderMock, _Mock4SwiftExhaustiveMock, _Mock4SwiftCallInspectable, StaticMock, InOrderStaticMock, _Mock4SwiftExhaustiveStaticMock, _Mock4SwiftStaticCallInspectable"
+                "public final class ServiceMock: Service, Mock, InOrderMock, _Mock4SwiftExhaustiveMock, _Mock4SwiftCallInspectable, _Mock4SwiftStateControllable, StaticMock, InOrderStaticMock, _Mock4SwiftExhaustiveStaticMock, _Mock4SwiftStaticCallInspectable, _Mock4SwiftStaticStateControllable"
             ))
         XCTAssertTrue(source.contains("public struct Calls"))
         XCTAssertTrue(source.contains("public struct StaticCalls"))

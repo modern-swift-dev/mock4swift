@@ -249,11 +249,13 @@ struct MockGenerator {
         let givenFactories = instance.map(\.givenFactory).joined(separator: "\n\n")
         let verifyFactories = (instance.map(\.verifyFactory) + initializers.map(\.verifyFactory)).joined(separator: "\n\n")
         let callsFactories = (instance.map(\.callsFactory) + initializers.map(\.callsFactory)).filter { !$0.isEmpty }.joined(separator: "\n\n")
+        let stateFactories = instance.map(\.stateFactory).filter { !$0.isEmpty }.joined(separator: "\n\n")
         let orderFactories = (instance.map(\.orderFactory) + initializers.map(\.orderFactory)).joined(separator: "\n\n")
         let performFactories = instance.map(\.performFactory).joined(separator: "\n\n")
         let staticGivenFactories = staticMembers.map(\.givenFactory).joined(separator: "\n\n")
         let staticVerifyFactories = staticMembers.map(\.verifyFactory).joined(separator: "\n\n")
         let staticCallsFactories = staticMembers.map(\.callsFactory).filter { !$0.isEmpty }.joined(separator: "\n\n")
+        let staticStateFactories = staticMembers.map(\.stateFactory).filter { !$0.isEmpty }.joined(separator: "\n\n")
         let staticOrderFactories = staticMembers.map(\.orderFactory).joined(separator: "\n\n")
         let staticPerformFactories = staticMembers.map(\.performFactory).joined(separator: "\n\n")
         let resets = (instance.filter { !$0.usesRegistry }.map { "        \($0.channelName).reset(scopes)" } + initializers.filter { !$0.usesRegistry }
@@ -277,7 +279,7 @@ struct MockGenerator {
             + (needsGenericRegistry ? ["_genericMockRegistry.unverifiedInvocations"] : [])
         let unverifiedExpression = unverifiedChannels.isEmpty ? "[]" : unverifiedChannels.joined(separator: " + ")
         let unverifiedInvocations = "    \(access)\(isolation)var _mock4SwiftUnverifiedInvocations: [_Mock4SwiftInvocation] { \(unverifiedExpression) }\n\n"
-        let staticConformance = staticMembers.isEmpty ? "" : ", StaticMock, InOrderStaticMock, _Mock4SwiftExhaustiveStaticMock, _Mock4SwiftStaticCallInspectable"
+        let staticConformance = staticMembers.isEmpty ? "" : ", StaticMock, InOrderStaticMock, _Mock4SwiftExhaustiveStaticMock, _Mock4SwiftStaticCallInspectable, _Mock4SwiftStaticStateControllable"
         let defaultPolicy = "    \(isolation)private let _mock4SwiftDefaultPolicy: MockDefaultPolicy\n\n"
         let defaultInitializer: String = if initializers.isEmpty {
             isObjectiveC
@@ -309,6 +311,12 @@ struct MockGenerator {
         \(staticCallsFactories)
             }
 
+            \(access)struct StaticMockState {
+                fileprivate let mock: \(mockType).Type
+
+        \(staticStateFactories)
+            }
+
             \(access)struct StaticOrderExpect {
                 fileprivate let mock: \(mockType).Type
                 fileprivate let order: InOrder
@@ -324,6 +332,7 @@ struct MockGenerator {
 
             \(access)\(isolation)static func given() -> StaticGiven { StaticGiven(mock: self) }
             \(access)\(isolation)static func _mock4SwiftStaticCalls() -> StaticCalls { StaticCalls(mock: self) }
+            \(access)\(isolation)static func _mock4SwiftStaticState() -> StaticMockState { StaticMockState(mock: self) }
             \(access)\(isolation)static func perform() -> StaticPerform { StaticPerform(mock: self) }
             \(access)\(isolation)static func orderExpectations(in order: InOrder) -> StaticOrderExpect {
                 StaticOrderExpect(mock: self, order: order)
@@ -343,7 +352,7 @@ struct MockGenerator {
         """
 
         let superclass = isObjectiveC ? "Foundation.NSObject, " : ""
-        return attributePrefix + access + "final \(kind) \(mockType)\(generics): \(superclass)\(conformanceType), Mock, InOrderMock, _Mock4SwiftExhaustiveMock, _Mock4SwiftCallInspectable\(staticConformance)\(mockWhere) {\n"
+        return attributePrefix + access + "final \(kind) \(mockType)\(generics): \(superclass)\(conformanceType), Mock, InOrderMock, _Mock4SwiftExhaustiveMock, _Mock4SwiftCallInspectable, _Mock4SwiftStateControllable\(staticConformance)\(mockWhere) {\n"
             + typealiasSection
             + defaultPolicy
             + genericRegistry
@@ -362,6 +371,9 @@ struct MockGenerator {
             + "    \(access)struct Calls {\n"
             + "        fileprivate let mock: \(mockType)\(callsFactories.isEmpty ? "" : "\n\n" + callsFactories)\n"
             + "    }\n\n"
+            + "    \(access)struct MockState {\n"
+            + "        fileprivate let mock: \(mockType)\(stateFactories.isEmpty ? "" : "\n\n" + stateFactories)\n"
+            + "    }\n\n"
             + "    \(access)struct OrderExpect {\n"
             + "        fileprivate let mock: \(mockType)\n"
             + "        fileprivate let order: InOrder\(orderSection)\n"
@@ -371,6 +383,7 @@ struct MockGenerator {
             + "    }\n\n"
             + "    \(access)\(isolation)func given() -> Given { Given(mock: self) }\n"
             + "    \(access)\(isolation)func _mock4SwiftCalls() -> Calls { Calls(mock: self) }\n"
+            + "    \(access)\(isolation)func _mock4SwiftState() -> MockState { MockState(mock: self) }\n"
             + "    \(access)\(isolation)func perform() -> Perform { Perform(mock: self) }\n"
             + "    \(access)\(isolation)func orderExpectations(in order: InOrder) -> OrderExpect {\n"
             + "        OrderExpect(mock: self, order: order)\n"

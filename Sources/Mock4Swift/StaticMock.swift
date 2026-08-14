@@ -23,3 +23,9 @@ public protocol _Mock4SwiftStaticCallInspectable: StaticMock {
     associatedtype StaticCalls
     static func _mock4SwiftStaticCalls() -> StaticCalls
 }
+
+/// Opt-in support for generated static property-state selectors.
+public protocol _Mock4SwiftStaticStateControllable: StaticMock {
+    associatedtype StaticMockState
+    static func _mock4SwiftStaticState() -> StaticMockState
+}
