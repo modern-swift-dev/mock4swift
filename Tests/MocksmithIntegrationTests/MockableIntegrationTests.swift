@@ -208,7 +208,7 @@ private struct Identifier: IdentifiedValue, Equatable {
 
     resetMock(mock, scopes: [.invocations])
     #expect(unit.value == "imperial")
-    #expect(Calls(mock).unit(set: .any).isEmpty)
+    #expect(Calls(mock).unit(set: .any).count == 0)
 
     Given(mock).unit.willReturn("stubbed")
     #expect(mock.unit == "stubbed")

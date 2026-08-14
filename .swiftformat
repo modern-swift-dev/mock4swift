@@ -47,5 +47,5 @@
 --wrapreturntype preserve
 --xcodeindentation disabled
 --maxwidth 200
---enable redundantOptionalBinding,isEmpty,wrapConditionalBodies,wrapEnumCases,wrapSwitchCases
+--enable redundantOptionalBinding,wrapConditionalBodies,wrapEnumCases,wrapSwitchCases
 --disable redundantSendable,unusedArguments,wrapSingleLineComments,initCoderUnavailable,anyObjectProtocol,blankLinesAroundMark,blankLinesAtEndOfScope,blankLinesAtStartOfScope,enumNamespaces,strongOutlets,trailingCommas,wrapMultilineStatementBraces,hoistAwait,hoistTry,redundantSelf
