@@ -24,6 +24,16 @@ The plugin resolves inherited protocols and composition aliases from the target 
 
 The package supports Swift 6.3 on Linux and iOS 17, macOS 13, tvOS 17, and watchOS 10 or newer.
 
+## Documentation
+
+Build an importable DocC bundle locally with a stable release version:
+
+```sh
+make docs VERSION=1.0.1
+```
+
+This creates `build/Mocksmith-Documentation-1.0.1.zip`. New GitHub releases include the same ZIP, containing `Mocksmith.doccarchive`, `MocksmithCombine.doccarchive`, `MocksmithTesting.doccarchive`, and `MocksmithXCTest.doccarchive` beneath a versioned top-level folder. Download and unzip the release asset, then open any `.doccarchive` in Xcode; it appears in Xcode's Imported Documentation browser.
+
 For progressive, runnable examples covering basic through advanced mocking, see the
 [samples guide](samples/README.md).
 

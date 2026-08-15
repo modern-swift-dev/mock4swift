@@ -16,6 +16,10 @@ format:
 	mint run --no-install nicklockwood/SwiftFormat . --config .swiftformat --quiet
 	mint run --no-install realm/SwiftLint  --config .swiftlint.yml --fix --quiet
 
+docs:
+
+	bash Scripts/build-documentation.sh "$(VERSION)"
+
 test-linux:
 	docker run \
 		--rm \
