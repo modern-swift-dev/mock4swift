@@ -17,17 +17,54 @@ jobs:
     runs-on: macos-26
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macOS
+            destination: platform=macOS
+          - platform: iOS
+            destination: simulator
+            device_type: com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro
+            runtime: com.apple.CoreSimulator.SimRuntime.iOS-26-4
+          - platform: tvOS
+            destination: simulator
+            device_type: com.apple.CoreSimulator.SimDeviceType.Apple-TV-4K-3rd-generation-4K
+            runtime: com.apple.CoreSimulator.SimRuntime.tvOS-26-4
+          - platform: watchOS
+            destination: simulator
+            device_type: com.apple.CoreSimulator.SimDeviceType.Apple-Watch-Series-11-46mm
+            runtime: com.apple.CoreSimulator.SimRuntime.watchOS-26-4
     steps:
       - uses: actions/checkout@v4
       - name: Verify Swift 6.3
         run: |
           swift --version
           swift --version | grep -F 'Swift version 6.3'
-      - run: xcodebuild test -scheme Mocksmith-Package -destination 'platform=macOS'
-      - name: Build Apple platforms
+      - name: Select test destination
+        id: destination
+        env:
+          DESTINATION: ${{ matrix.destination }}
+          DEVICE_TYPE: ${{ matrix.device_type }}
+          RUNTIME: ${{ matrix.runtime }}
         run: |
-          for platform in iOS tvOS watchOS; do
-            for scheme in MocksmithCombine MocksmithTesting MocksmithXCTest; do
-              xcodebuild clean build -scheme "$scheme" -destination "generic/platform=$platform"
-            done
-          done
+          if [[ "$DESTINATION" != "simulator" ]]; then
+            echo "value=$DESTINATION" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          simulator_id="$(
+            xcrun simctl list devices available --json |
+              jq -r \
+                --arg runtime "$RUNTIME" \
+                --arg device_type "$DEVICE_TYPE" \
+                '.devices[$runtime] // [] | map(select(.deviceTypeIdentifier == $device_type)) | first | .udid // empty'
+          )"
+
+          if [[ -z "$simulator_id" ]]; then
+            simulator_id="$(xcrun simctl create 'Mocksmith CI' "$DEVICE_TYPE" "$RUNTIME")"
+          fi
+
+          echo "value=id=$simulator_id" >> "$GITHUB_OUTPUT"
+      - name: Test on ${{ matrix.platform }}
+        run: xcodebuild test -scheme Mocksmith-Package -destination '${{ steps.destination.outputs.value }}'
