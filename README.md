@@ -2,20 +2,33 @@
 
 `Mocksmith` creates strict protocol mocks at compile time with Swift 6.3 macros. It takes inspiration from [SwiftyMocky](https://github.com/MakeAWishFoundation/SwiftyMocky), without Sourcery or checked-in generated source files.
 
+Source code, issues, and releases live in the canonical [modern-swift-dev/mocksmith-swift repository](https://github.com/modern-swift-dev/mocksmith-swift).
+
 ## Installation
 
-Add the package to a Swift 6.3 project, then add `Mocksmith`, exactly one runner adapter, and the build plugin. Attach the plugin to every target that declares an inherited `@Mockable` protocol:
+Add the latest stable release of the package to a Swift 6.3 project:
+
+```swift
+dependencies: [
+    .package(
+        url: "https://github.com/modern-swift-dev/mocksmith-swift.git",
+        from: "1.0.0"
+    )
+]
+```
+
+Then add `Mocksmith`, exactly one runner adapter, and the build plugin. Attach the plugin to every target that declares an inherited `@Mockable` protocol:
 
 ```swift
 .testTarget(
     name: "AppTests",
     dependencies: [
-        .product(name: "Mocksmith", package: "Mocksmith"),
-        .product(name: "MocksmithTesting", package: "Mocksmith"),
-        // or: .product(name: "MocksmithXCTest", package: "Mocksmith")
+        .product(name: "Mocksmith", package: "mocksmith-swift"),
+        .product(name: "MocksmithTesting", package: "mocksmith-swift"),
+        // or: .product(name: "MocksmithXCTest", package: "mocksmith-swift")
     ],
     plugins: [
-        .plugin(name: "MocksmithBuildPlugin", package: "Mocksmith"),
+        .plugin(name: "MocksmithBuildPlugin", package: "mocksmith-swift"),
     ]
 )
 ```
@@ -26,16 +39,45 @@ The package supports Swift 6.3 on Linux and iOS 17, macOS 13, tvOS 17, and watch
 
 ## Documentation
 
+The [Mocksmith documentation site](https://modern-swift-dev.github.io/mocksmith-swift/) has the
+[documentation hub](https://modern-swift-dev.github.io/mocksmith-swift/documentation/),
+[getting-started guide](https://modern-swift-dev.github.io/mocksmith-swift/documentation/getting-started/),
+and [code examples](https://modern-swift-dev.github.io/mocksmith-swift/examples/). The generated API
+documentation is available by module: [Mocksmith](https://modern-swift-dev.github.io/mocksmith-swift/documentation/api/mocksmith/documentation/mocksmith/),
+[MocksmithCombine](https://modern-swift-dev.github.io/mocksmith-swift/documentation/api/mocksmithcombine/documentation/mocksmithcombine/),
+[MocksmithTesting](https://modern-swift-dev.github.io/mocksmith-swift/documentation/api/mocksmithtesting/documentation/mocksmithtesting/),
+and [MocksmithXCTest](https://modern-swift-dev.github.io/mocksmith-swift/documentation/api/mocksmithxctest/documentation/mocksmithxctest/).
+
+The authored Astro pages are light-only and work without JavaScript. The generated DocC pages use
+Swift DocC's standard JavaScript and automatic color-scheme behavior. That is the intentional exception
+for API reference pages.
+
 Build an importable DocC bundle locally with a stable release version:
 
 ```sh
-make docs VERSION=1.0.1
+make docs-release VERSION=1.0.1
 ```
 
 This creates `build/Mocksmith-Documentation-1.0.1.zip`. New GitHub releases include the same ZIP, containing `Mocksmith.doccarchive`, `MocksmithCombine.doccarchive`, `MocksmithTesting.doccarchive`, and `MocksmithXCTest.doccarchive` beneath a versioned top-level folder. Download and unzip the release asset, then open any `.doccarchive` in Xcode; it appears in Xcode's Imported Documentation browser.
 
 For progressive, runnable examples covering basic through advanced mocking, see the
-[samples guide](samples/README.md).
+[samples guide](samples/README.md) or the site's [examples](https://modern-swift-dev.github.io/mocksmith-swift/examples/).
+
+### Publishing the site
+
+Maintainers publish the site as part of the release workflow:
+
+1. Publish the GitHub release.
+2. Run `make site-build`.
+3. Review the generated release data and DocC changes in `docs/`.
+4. Commit `docs/`.
+
+The complete build fetches the latest non-draft, non-prerelease GitHub release, builds the Astro pages,
+and generates the four static DocC sites. It replaces `docs/` and writes `docs/.nojekyll`.
+
+Before the first publication, configure the repository's Pages source to the `main` branch and `/docs`
+folder in GitHub's [branch publishing configuration](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site).
+The build does not change that remote Pages setting.
 
 ## Basic usage
 

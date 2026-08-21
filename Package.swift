@@ -21,6 +21,10 @@ let package = Package(
     dependencies: [
         .package(path: "Tests/Fixtures/external-protocols"),
         .package(
+            url: "https://github.com/swiftlang/swift-docc-plugin.git",
+            exact: "1.5.0"
+        ),
+        .package(
             url: "https://github.com/swiftlang/swift-syntax.git",
             exact: "603.0.2"
         )

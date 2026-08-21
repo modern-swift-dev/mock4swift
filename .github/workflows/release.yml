@@ -34,7 +34,7 @@ jobs:
           swift --version | grep -F 'Swift version 6.3'
 
       - name: Build documentation bundle
-        run: make docs VERSION='${{ steps.tag.outputs.version }}'
+        run: make docs-release VERSION='${{ steps.tag.outputs.version }}'
 
       - name: Create GitHub release
         env:
